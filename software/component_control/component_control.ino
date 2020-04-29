@@ -5,9 +5,20 @@
 #define DEBUG_PRINT 1
 
 #define HK_TLM_ON 1
-#define HK_TLM_LEN 6
+#define HK_TLM_LEN 10
 #define HK_TLM_START 0x50
 #define HK_TLM_END 0x51
+
+#define HK_STX0_IDX 0
+#define HK_STX1_IDX 1
+#define HK_MOTOR0_IDX 2
+#define HK_MOTOR1_IDX 3
+#define HK_SENT_TIME0_IDX 4
+#define HK_SENT_TIME1_IDX 5
+#define HK_SENT_TIME2_IDX 6
+#define HK_SENT_TIME3_IDX 7
+#define HK_END0_IDX 8
+#define HK_END1_IDX 9
 
 #define MOTOR0_FWD_PIN 5
 #define MOTOR0_BCK_PIN 4
@@ -17,15 +28,6 @@
 #define MOTOR0_ENABLE_PIN 8
 #define MOTOR1_ENABLE_PIN 9
 
-void DebugPrint(char *str){
-  if(DEBUG_PRINT == 1){
-    Serial.print(str);
-  }
-}
-
-/*
- * MOTORS
- */
 enum MotorAction{
   backward,
   neutral,
@@ -33,60 +35,57 @@ enum MotorAction{
 };
 
 typedef struct{
-  int motor_id,
-  int enable_pin,
-  int fwd_pin,
-  int bck_pin,
-  unsigned int spd
+  int motor_id;
+  int enable_pin;
+  int fwd_pin;
+  int bck_pin;
+  byte spd;
 }Motor;
 
-/*
- * COMMS
- */
 enum CommStatus{
   OK,
   ERR
 };
 
 typedef struct{
-  CommStatus raspberrypi_com_sts,
-  CommStatus motor0_com_sts,
-  CommStatus motor1_com_sts
+  CommStatus pi_com_sts;
+  CommStatus motor0_com_sts;
+  CommStatus motor1_com_sts;
 }Comms;
 
 typedef struct{
-  unsigned long last_hk_time,
-  Comms comms
+  unsigned long last_hk_time;
+  Motor motor0;
+  Motor motor1;
+  Comms comms;
 }State;
 
 int InitializeComms(Comms *comms){
-  int sts = 0;
-  sts = Serial.begin(9600);
-  if(sts != 0){
-    comms.raspberrypi_com_sts = CommStatus ERR;
-    DebugPrint("Failure to initialize serial connection. Exiting.\n");
-    return 1;
-  }
+  Serial.begin(9600);
+  //in future i want this to ping pi and look for return
+  //then keep trying if no return ping
 
-  comms.raspberrypi_com_sts = CommStatus OK;
-  DebugPrint("Arduino connected.\n");
+  comms->pi_com_sts = OK;
+  Serial.write("Arduino connected.\n");
   return 0;
 }
 
-/*
- * Telemetry
- */
 void SendHkTlm(State *state){
   if(HK_TLM_ON && millis() - state->last_hk_time > 1000){
-    unsigned byte tlm[HK_TLM_LEN];
-    tlm[0] = HK_TLM_START;
-    tlm[1] = HK_TLM_START;
-    tlm[2] = state->motor0.spd;
-    tlm[3] = state->motor1.spd;
-    tlm[4] = HK_TLM_END;
-    tlm[5] = HK_TLM_END;
+    byte  tlm[HK_TLM_LEN];
+    tlm[HK_STX0_IDX] = HK_TLM_START;
+    tlm[HK_STX1_IDX] = HK_TLM_START;
+    tlm[HK_MOTOR0_IDX] = state->motor0.spd;
+    tlm[HK_MOTOR1_IDX] = state->motor1.spd;
+    tlm[HK_SENT_TIME0_IDX] = (state->last_hk_time >> 24) & 0xFF;
+    tlm[HK_SENT_TIME1_IDX] = (state->last_hk_time >> 16) & 0xFF;
+    tlm[HK_SENT_TIME2_IDX] = (state->last_hk_time >> 8) & 0xFF;
+    tlm[HK_SENT_TIME3_IDX] = state->last_hk_time & 0xFF;
+    tlm[HK_END0_IDX] = HK_TLM_END;
+    tlm[HK_END1_IDX] = HK_TLM_END;
     
-    Serial.write(tlm);
+    Serial.write(tlm, HK_TLM_LEN);
+    state->last_hk_time = millis();
   }
 }
 
@@ -97,10 +96,8 @@ void InitializeState(State *state){
   state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, 128};
   state->motor1 = {1, MOTOR1_ENABLE_PIN, MOTOR1_FWD_PIN, MOTOR1_BCK_PIN, 128};
   
-  state->comms = Comms{CommStatus ERR,CommStatus OK, CommStatus OK};
+  state->comms = {ERR, OK, OK};
   InitializeComms(&(state->comms));
-
-  //want a loop here in the future to reattempt connection if ever lost
 }
 
 State state;
@@ -109,6 +106,5 @@ void setup() {
 }
 
 void loop() {
-  //want a system check here to see if any errors occurred in last loop
-  SendHkTlm(&state);
+  //SendHkTlm(&state);
 }
