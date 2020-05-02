@@ -106,5 +106,5 @@ void setup() {
 }
 
 void loop() {
-  //SendHkTlm(&state);
+  SendHkTlm(&state);
 }
