@@ -1,12 +1,18 @@
-#Doggo
-#30 Jan 2021
+#All-Purpose Robot
+#1 Feb 2021
 #Ryan Proffitt
 
-#This code is the main "brain" of Doggo.
+# This is the core logic of the control module (Raspberry Pi 4B).
 
 import serial
 import binascii
 import time
+from enum import Enum
+
+class MotorAction(Enum):
+    BACKWARD = 0
+    NEUTRAL = 1
+    FORWARD = 2
 
 class State:
     def __init__(self):
@@ -33,30 +39,28 @@ def parse_tlm(tlm, state):
     state.motor1_speed = tlm[5]
     state.time_hk_reported_sent = int.from_bytes(bytes(tlm[6:10]), "big")
 
-def listen_for_hk(ser, state):
-    byte_ctr = 0
-    
-    print("Listening for telemetry.")
-
-    while(True):
-        byte_read = ser.read(1)
-        if(int.from_bytes(byte_read, "big") == 0x50):
-            tmp_time = time.time()
-            raw_tlm = byte_read
-            byte_read = ser.read(1)
-            if(int.from_bytes(byte_read, "big") == 0x50):
-                raw_tlm = raw_tlm + byte_read + ser.read(10)
-                tlm = list(raw_tlm)
-                if(tlm[-1] == 0x51 and tlm[-2] == 0x51):
-                    state.time_hk_received = tmp_time
-                    parse_tlm(tlm, state)
-                    print(state)
-                    print(binascii.hexlify(raw_tlm))
+def listen_for_hk(tctm_manager, state, tlm_file):
+    tctm_manager.recv_tlm()
 
 def main():
+    tlm_file = open("/home/pi/doggo/software/tlm_files/tlm_output") #TODO: time based file names
+
+    print("Setting up serial connection...", end=" ")
+    try:
+        serial_conn = serial.Serial("/dev/ttyACM0")
+    except(Exception as e):
+        print(e, "\nExiting gracefully.")
+        close(tlm_file)
+        exit()
+    print("done!")
+
+    
     state = State()
-    ser = serial.Serial("/dev/ttyACM0")
-    listen_for_hk(ser, state)
+    listen_for_hk(serial_conn, state, tlm_file)
+    command
+    
+
+    print("Listening ")
     
 if __name__ == "__main__":
     main()

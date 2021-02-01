@@ -1,26 +1,24 @@
-//Doggo
-//31 Jan 2021
-//Ryan Proffitt
-
-#define DEBUG_PRINT 1
+// All-Purpose Robot
+// 31 Jan 2021
+// Ryan Proffitt
+// This is the component module's (Arduino) core logic.
 
 #define HK_TLM_ON 1
-#define HK_TLM_LEN 12
 #define HK_TLM_START 0x50
 #define HK_TLM_END 0x51
+#define HK_HEADER_LEN 0x10
 
-#define HK_STX0_IDX 0
-#define HK_STX1_IDX 1
-#define HK_MACHINE_ID 2
-#define HK_TLM_COUNT 3
-#define HK_MOTOR0_IDX 4
-#define HK_MOTOR1_IDX 5
-#define HK_SENT_TIME0_IDX 6
-#define HK_SENT_TIME1_IDX 7
-#define HK_SENT_TIME2_IDX 8
-#define HK_SENT_TIME3_IDX 9
-#define HK_END0_IDX 10
-#define HK_END1_IDX 11
+#define HK_STX0_IDX 0x00
+#define HK_STX1_IDX 0x01
+#define HK_MACHINE_ID_IDX 0x02
+#define HK_TLM_TYPE_IDX 0x03
+#define HK_TLM_COUNT_IDX 0x04
+#define HK_SENT_TIME0_IDX 0x06
+#define HK_SENT_TIME1_IDX 0x07
+#define HK_SENT_TIME2_IDX 0x08
+#define HK_SENT_TIME3_IDX 0x09
+#define HK_DATA_LEN 0x10
+#define HK_TLM_DATA_IDX 0x11
 
 //left motor
 #define MOTOR0_ENABLE_PIN 11
@@ -33,14 +31,14 @@
 #define MOTOR1_BCK_PIN 4
 
 enum MotorTestState{
-  demo_backward,
-  demo_forward
+  DEMO_BACKWARD,
+  DEMO_FORWARD
 };
 
 enum MotorAction{
-  backward,
-  neutral,
-  forward
+  BACKWARD,
+  NEUTRAL,
+  FORWARD
 };
 
 typedef struct{
@@ -98,19 +96,19 @@ int InitializeComms(Comms *comms){
 
 void ChangeMotorAction(Motor *motor, MotorAction motor_action){
   switch(motor_action){
-   case backward:
+   case BACKWARD:
       motor->pwm_val = 0;
       //TODO: update PWM pin HERE
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, HIGH);
       break;
-    case neutral:
+    case NEUTRAL:
       motor->pwm_val = 127;
       //TODO: update PWM pin HERE
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, LOW);
       break;
-    case forward:
+    case FORWARD:
       motor->pwm_val = 255;
       //TODO: update PWM pin HERE
       digitalWrite(motor->fwd_pin, HIGH);
@@ -149,24 +147,24 @@ void motor_test(State *state, TestState *test_state){
   if(tmp_time - test_state->last_direction_change_time >= 500){
     test_state->last_direction_change_time = tmp_time;
     
-    if(test_state->motor_test_state == demo_forward){
+    if(test_state->motor_test_state == DEMO_FORWARD){
       switch(test_state->motor_action){
-        case neutral:
-          ChangeMotorAction(&(state->motor0), forward);
-          ChangeMotorAction(&(state->motor1), forward);
-        case forward:
-          test_state->motor_test_state = demo_backward;
-          ChangeMotorAction(&(state->motor0), neutral);
-          ChangeMotorAction(&(state->motor1), neutral);
+        case NEUTRAL:
+          ChangeMotorAction(&(state->motor0), FORWARD);
+          ChangeMotorAction(&(state->motor1), FORWARD);
+        case FORWARD:
+          test_state->motor_test_state = DEMO_BACKWARD;
+          ChangeMotorAction(&(state->motor0), NEUTRAL);
+          ChangeMotorAction(&(state->motor1), NEUTRAL);
       }
-    }else if(test_state->motor_test_state == demo_backward){
+    }else if(test_state->motor_test_state == DEMO_BACKWARD){
       switch(test_state->motor_action){
-        case neutral:
-          ChangeMotorAction(&(state->motor0), backward);
-          ChangeMotorAction(&(state->motor1), backward);
-        case forward:
-          ChangeMotorAction(&(state->motor0), neutral);
-          ChangeMotorAction(&(state->motor1), neutral); 
+        case NEUTRAL:
+          ChangeMotorAction(&(state->motor0), BACKWARD);
+          ChangeMotorAction(&(state->motor1), BACKWARD);
+        case FORWARD:
+          ChangeMotorAction(&(state->motor0), NEUTRAL);
+          ChangeMotorAction(&(state->motor1), NEUTRAL); 
       }
     }
   }
@@ -196,13 +194,13 @@ int InitializeMotors(State *state, bool enable_pwm_control){
 
 void InitializeTestState(TestState *test_state){
   test_state->last_direction_change_time = millis();
-  test_state->motor_test_state = demo_forward;
+  test_state->motor_test_state = DEMO_FORWARD;
 }
 
 void InitializeState(State *state){
   state->last_hk_time = millis();
 
-  state->machine_id = 44;
+  state->machine_id = 0x44;
 
   //Add init() for motors later. want a check for the hardware
   state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, 127};
