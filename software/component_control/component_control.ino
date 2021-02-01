@@ -6,18 +6,19 @@
 #define HK_TLM_ON 1
 #define HK_TLM_START 0x50
 #define HK_TLM_END 0x51
-#define HK_HEADER_LEN 0x10
+#define HK_HEADER_LEN 0x11
 
 #define HK_STX0_IDX 0x00
 #define HK_STX1_IDX 0x01
 #define HK_MACHINE_ID_IDX 0x02
 #define HK_TLM_TYPE_IDX 0x03
 #define HK_TLM_COUNT_IDX 0x04
+#define HK_CMD_COUNT_IDX 0x05
 #define HK_SENT_TIME0_IDX 0x06
 #define HK_SENT_TIME1_IDX 0x07
 #define HK_SENT_TIME2_IDX 0x08
 #define HK_SENT_TIME3_IDX 0x09
-#define HK_DATA_LEN 0x10
+#define HK_DATA_LEN_IDX 0x10
 #define HK_TLM_DATA_IDX 0x11
 
 //left motor

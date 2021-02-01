@@ -14,14 +14,17 @@ import time
 class CmdType(Enum):
     CMD_NOP = 0x00
     CMD_STS = 0x01
-    CMD_MOTOR_CTRL = 0x02
+    CMD_SYSTEM_CHECK = 0x02
+    CMD_MOTOR_CTRL = 0x03
 
 # All possible telemetry types
 class TlmType(Enum):
     TLM_ALIVE = 0x00
-    TLM_STS = 0x01
-    TLM_MOTOR_CTRL = 0x02
+    TLM_STS_RES = 0x01
+    TLM_SYSTEM_CHECK_RES = 0x02
+    TLM_MOTOR_CTRL_RES = 0x03
 
+# General Constants in Component Module Code
 TLM_START_BYTE_VAL = 0x50
 TLM_MACHINE_ID = 0x44
 TLM_END_BYTE_VAL = 0x51
@@ -36,46 +39,54 @@ class TctmManager(ser_connection):
         isinstance(cmd, Telecommand)
         my_serial_conn.write(cmd._to_bytes)
 
+    # Collects telemetry from the serial connection and assembles Telemetry object
+    # Returns:
+    #   Telemetry Object, None if telemetry found
+    #   None, Error if an error was encountered
+    #   None, None if no telemetry was found and no error was encountered
     def recv_tlm():
+        tlm = None
         byte_read = b'0x01'
 
-        while(byte_read):
-            # Check for Start Byte #1
-            byte_read = ser.read(1) # Leave this here for the while loop to check
-            if int.from_bytes(byte_read, "big") != TLM_START_BYTE_VAL:
-                continue
+        try:
+            while(byte_read):
+                # Check for Start Byte #1
+                byte_read = ser.read(1) # Leave this here for the while loop to check
+                if int.from_bytes(byte_read, "big") != TLM_START_BYTE_VAL:
+                    continue
 
-            # Start Byte #2
-            if int.from_bytes(ser.read(1), "big") != TLM_START_BYTE_VAL:
-                continue
+                # Start Byte #2
+                if int.from_bytes(ser.read(1), "big") != TLM_START_BYTE_VAL:
+                    continue
 
-            # The Machine ID
-            machine_id = int.from_bytes(ser.read(1), "big")
-            if machine_id != TLM_MACHINE_ID:
-                continue
+                # The Machine ID
+                machine_id = int.from_bytes(ser.read(1), "big")
+                if machine_id != TLM_MACHINE_ID:
+                    continue
 
-            # The Telemetry Type
-            tlm_type = int.from_bytes(ser.read(1), "big")
-            if not tlm_type in set(TlmType):
-                continue
+                # The Telemetry Type
+                tlm_type = int.from_bytes(ser.read(1), "big")
+                if not tlm_type in set(TlmType):
+                    continue
 
-            # At this point we have valid telemetry from a machine, let's collect the rest
-            recv_time = time.time()
-            tlm_count = int.from_bytes(ser.read(1), "big")
-            tlm_ms_since_boot = int.from_bytes(ser.read(4), "big")
-            tlm_data_len = int.from_bytes(ser.read(1), "big")
+                # At this point we have valid telemetry from a machine, let's collect the rest
+                recv_time = time.time()
+                tlm_count = int.from_bytes(ser.read(1), "big")
+                cmd_count = int.from_bytes(ser.read(1), "big")
+                tlm_ms_since_boot = int.from_bytes(ser.read(4), "big")
+                tlm_data_len = int.from_bytes(ser.read(1), "big")
+                tlm_data = list(ser.read(tlm_data_len))
 
-            tlm_data = list(ser.read(tlm_data_len))
+                # Finally, Check the End Bytes
+                if int.from_bytes(ser.read(1), "big") != TLM_END_BYTE_VAL and \
+                        int.from_bytes(ser.read(1), "big")  != TLM_END_BYTE_VAL:
+                    raise ValueError("Tlm Found, but End Bytes Missing...")
 
-            if != TLM_END_BYTE_VAL and AA != TLM_END_BYTE_VAL:
-                
-
-            if(tlm[-1] == TLM_END_BYTE_VAL and tlm[-2] == TLM_END_BYTE_VAL):
-                state.time_hk_received = tmp_time
-                parse_tlm(tlm, state)
-                #print(state)
-                #print(binascii.hexlify(raw_tlm))
-                tlm_file.write(str(tlm), "\n")
+                # Construct Telemetry Object
+                tlm = Telemetry(recv_time, machine_id, tlm_type, tlm_count, cmd_count, tlm_ms_since_boot, tlm_data)
+        except Exception as e:
+            return False, e
+        return tlm, None
 
 #-----------------Telecommands------------------#
 
@@ -115,9 +126,13 @@ def gen_cmd_motor_ctrl(leftMotor, rightMotor):
 
 #----------------Telemetry-------------------#
 class Telemetry():
-    def __init__(self, read_time, tlm_type, tlm_data):
-        self.read_time = read_time
+    def __init__(self, recv_time, machine_id, tlm_type, tlm_count, cmd_count, ms_since_boot, tlm_data):
+        self.recv_time = recv_time
+        self.machine_id = machine_id
         self.tlm_type = tlm_type
+        self.tlm_count = tlm_count
+        self.cmd_count = cmd_count
+        self.ms_since_boot = ms_since_boot
         self.tlm_data = tlm_data
 
 def test_tctm():
