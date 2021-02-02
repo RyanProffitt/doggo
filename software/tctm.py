@@ -5,31 +5,32 @@
 
 #TODO: Put some of this in C
 
-from enum import Enum
-import time
+from enum import IntEnum
+from datetime import datetime
 
 #----------------General-------------------#
 
 # All possible command types
-class CmdType(Enum):
+class CmdType(IntEnum):
     CMD_NOP = 0x00
     CMD_STS = 0x01
     CMD_SYSTEM_CHECK = 0x02
     CMD_MOTOR_CTRL = 0x03
 
 # All possible telemetry types
-class TlmType(Enum):
+class TlmType(IntEnum):
     TLM_ALIVE = 0x00
     TLM_STS_RES = 0x01
     TLM_SYSTEM_CHECK_RES = 0x02
     TLM_MOTOR_CTRL_RES = 0x03
+TlmType_VALUES = [t.value for t in set(TlmType)]
 
 # General Constants in Component Module Code
 TLM_START_BYTE_VAL = 0x50
 TLM_MACHINE_ID = 0x44
 TLM_END_BYTE_VAL = 0x51
 
-class MotorAction(Enum):
+class MotorAction(IntEnum):
     backward = 0x00,
     neutral = 0x01,
     forward = 0x02
@@ -71,11 +72,11 @@ class TctmManager():
 
                 # The Telemetry Type
                 tlm_type = int.from_bytes(self.my_serial_conn.read(1), "big")
-                if not tlm_type in set(TlmType):
+                if not tlm_type in TlmType_VALUES:
                     continue
 
                 # At this point we have valid telemetry from a machine, let's collect the rest
-                recv_time = time.time()
+                recv_time = datetime.now()
                 tlm_count = int.from_bytes(self.my_serial_conn.read(1), "big")
                 cmd_count = int.from_bytes(self.my_serial_conn.read(1), "big")
                 tlm_ms_since_boot = int.from_bytes(self.my_serial_conn.read(4), "big")
@@ -89,6 +90,7 @@ class TctmManager():
 
                 # Construct Telemetry Object
                 tlm = Telemetry(recv_time, machine_id, tlm_type, tlm_count, cmd_count, tlm_ms_since_boot, tlm_data)
+                break
         except Exception as e:
             return False, e
         return tlm, None
@@ -127,7 +129,7 @@ def gen_cmd_motor_ctrl(leftMotor, rightMotor):
     if not (isinstance(leftMotor[1], MotorAction) and isinstance(rightMotor[1], MotorAction)):
         raise ValueError("motor_action must be of type MotorAction")
 
-    return Telecommand(CMD_MOTOR_CTRL, [leftMotor[0], leftMotor[1], rightMotor[0], rightMotor[1]])
+    return Telecommand(CmdType.CMD_MOTOR_CTRL, [leftMotor[0], leftMotor[1], rightMotor[0], rightMotor[1]])
 
 #----------------Telemetry-------------------#
 class Telemetry():
@@ -139,6 +141,13 @@ class Telemetry():
         self.cmd_count = cmd_count
         self.ms_since_boot = ms_since_boot
         self.tlm_data = tlm_data
+
+    def __str__(self):
+        if self.tlm_type == TlmType.TLM_ALIVE:
+            return "Tlm:: RecvTime: {0}, MachineID: {1}, TlmType: {2}, TlmCnt: {3}, CmdCnt: {4}, MsSinceBoot: {5}" \
+                .format(self.recv_time.strftime("%H:%M:%S"), self.machine_id, self.tlm_type, self.tlm_count, self.cmd_count, self.ms_since_boot)
+        else:
+            return "Not Defined Yet"
 
 def test_tctm():
     #TODO

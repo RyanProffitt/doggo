@@ -232,14 +232,31 @@ void InitializeState(State *state){
 void loop() {
   SendTlmAlive(&state);
 
-  state.motor0.pwm_val = 2;
-  state.motor1.pwm_val = 2;
-  analogWrite(MOTOR0_ENABLE_PIN, 2);
-  analogWrite(MOTOR1_ENABLE_PIN, 2);
+  delay(500);
+  state.motor0.pwm_val = 75;
+  state.motor1.pwm_val = 75;
+  analogWrite(MOTOR0_ENABLE_PIN, 75);
+  analogWrite(MOTOR1_ENABLE_PIN, 75);
   digitalWrite(MOTOR0_FWD_PIN, LOW);
   digitalWrite(MOTOR0_BCK_PIN, HIGH);
   digitalWrite(MOTOR1_FWD_PIN, LOW);
   digitalWrite(MOTOR1_BCK_PIN, HIGH);
+
+  delay(500);
+  analogWrite(MOTOR0_ENABLE_PIN, 75);
+  analogWrite(MOTOR1_ENABLE_PIN, 75);
+  digitalWrite(MOTOR0_FWD_PIN, HIGH);
+  digitalWrite(MOTOR0_BCK_PIN, LOW);
+  digitalWrite(MOTOR1_FWD_PIN, HIGH);
+  digitalWrite(MOTOR1_BCK_PIN, LOW);
+
+  delay(500);
+  analogWrite(MOTOR0_ENABLE_PIN, 75);
+  analogWrite(MOTOR1_ENABLE_PIN, 75);
+  digitalWrite(MOTOR0_FWD_PIN, HIGH);
+  digitalWrite(MOTOR0_BCK_PIN, LOW);
+  digitalWrite(MOTOR1_FWD_PIN, HIGH);
+  digitalWrite(MOTOR1_BCK_PIN, LOW);
   
   //RunTests(&state, &test_state);
 }
