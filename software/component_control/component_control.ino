@@ -172,6 +172,30 @@ void SendTlmAlive(State *state){
   }
 }
 
+// void SendTlmMotorCtrlRes(State *state){
+//   if(TLM_ON && millis() - state->last_TLM_time >= 1000){
+//     state->comms.tlm_cnt += 1;
+//     const byte tlm_len = 12;
+//     byte tlm[tlm_len];
+//     tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
+//     tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
+//     tlm[TLM_MACHINE_ID_IDX] = state->machine_id;
+//     tlm[TLM_TYPE_IDX] = TLM_ALIVE;
+//     tlm[TLM_COUNT_IDX] = state->comms.tlm_cnt;
+//     tlm[TLM_CMD_COUNT_IDX] = state->comms.cmd_cnt;
+//     tlm[TLM_SENT_TIME0_IDX] = (state->last_TLM_time >> 24) & 0xFF;
+//     tlm[TLM_SENT_TIME1_IDX] = (state->last_TLM_time >> 16) & 0xFF;
+//     tlm[TLM_SENT_TIME2_IDX] = (state->last_TLM_time >> 8) & 0xFF;
+//     tlm[TLM_SENT_TIME3_IDX] = state->last_TLM_time & 0xFF;
+//     tlm[TLM_DATA_LEN_IDX] = 0;
+//     tlm[11] = TLM_END_BYTE_VAL;
+//     tlm[12] = TLM_END_BYTE_VAL;
+    
+//     Serial.write(tlm, tlm_len);
+//     state->last_TLM_time = millis();
+//   }
+// }
+
 int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
   // Perform Cmd Checks
   if(cmd->data_len != 4){
@@ -247,7 +271,9 @@ void RcvCmds(State *state){
     if(Serial.available() == 0){break;}
     if(Serial.read() != CMD_END_BYTE_VAL){continue;}
 
-    InterpretCmd(state, &cmd);
+    byte interpret_sts = 0;
+    interpret_sts = InterpretCmd(state, &cmd);
+
     break;
   }
 }

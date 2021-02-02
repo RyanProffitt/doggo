@@ -42,7 +42,7 @@ class MotorAction(IntEnum):
 
 # Manages Tctm
 # Maintains the serial connection, sends commands, and handles telemetry
-class TctmManager():
+class TctmManager:
     #TODO Make all command generators a function of this class
     def __init__(self, serial_connection=None):
         self.my_serial_conn = serial_connection
@@ -114,7 +114,7 @@ class TctmManager():
 # cmd_type - The command type of type Enum CmdType
 # cmd_data - A list of byte values that mark the command data
 #       ! It is up to the telecommand generator to pack these bytes correctly !
-class Telecommand():
+class Telecommand:
     def __init__(self, machine_id, cmd_type, cmd_data):
         self.start_byte0 = CMD_START_BYTE_VAL
         self.start_byte1 = CMD_START_BYTE_VAL
@@ -125,7 +125,7 @@ class Telecommand():
         self.end_byte1 = CMD_END_BYTE_VAL
 
     def _to_bytes(self):
-        cmd_bytes = [self.start_byte0, self.start_byte1, self.destination_machine_id, self.cmd_type, len(cmd_data)]
+        cmd_bytes = [self.start_byte0, self.start_byte1, self.destination_machine_id, self.cmd_type, len(self.cmd_data)]
         cmd_bytes.extend(self.cmd_data)
         cmd_bytes.extend([self.end_byte0, self.end_byte1])
         return bytes(cmd_bytes)
@@ -145,7 +145,7 @@ def gen_cmd_motor_ctrl(destination_machine_id, leftMotor, rightMotor):
     return Telecommand(destination_machine_id, CmdType.CMD_MOTOR_CTRL, [leftMotor[0], int(leftMotor[1]), rightMotor[0], int(rightMotor[1])])
 
 #----------------Telemetry-------------------#
-class Telemetry():
+class Telemetry:
     def __init__(self, recv_time, machine_id, tlm_type, tlm_count, cmd_count, ms_since_boot, tlm_data):
         self.recv_time = recv_time
         self.machine_id = machine_id
@@ -168,7 +168,7 @@ def test_tctm():
     # Test Motor Control Command
     destination_machine_id = MACHINE_ID
     cmd = gen_cmd_motor_ctrl(destination_machine_id, (255, MotorAction.FORWARD), (255, MotorAction.FORWARD))
-    assert([97, 97, 68, 3, 4, 255, 2, 255, 2, 98, 98] == list(cmd._to_bytes()))
+    assert([96, 96, 68, 3, 4, 255, 2, 255, 2, 97, 97] == list(cmd._to_bytes()))
 
     # Test TCTM Manager Construction
     tctm_manager = TctmManager()

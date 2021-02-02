@@ -7,10 +7,10 @@
 from datetime import datetime
 
 class MachineState:
-    def __init__(self, serial_port=""):
+    def __init__(self, machine_id, serial_port=""):
         self.serial_port = serial_port
 
-        self.machine_id = 0
+        self.machine_id = machine_id
         self._is_alive = True
 
         self.recvd_cmds = []

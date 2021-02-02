@@ -19,12 +19,12 @@ def listen_for_tlm(tctm_manager, state, tlm_file):
         tlm, error = tctm_manager.recv_tlm()
 
         if tlm:
-            tlm_file.write(str(tlm), "\n")
+            tlm_file.write(str(tlm) + "\n")
         elif error:
-            tlm_file.write(str(tlm), "\n")
+            tlm_file.write(str(error) + "\n")
 
 def main():
-    robo_state = machine_state.MachineState(serial_port="/dev/ttyACM0")
+    robo_state = machine_state.MachineState(0x44, serial_port="/dev/ttyACM0")
 
     print("Setting up serial connection with machine...", end=" ")
     try:
@@ -45,25 +45,29 @@ def main():
     tlm_process = Process(target=listen_for_tlm, args=(tctm_manager, robo_state, tlm_file,))
     tlm_process.start()
 
-    # Keyboard Control of Bot
-    while True:
-        try:
-            if keyboard.is_pressed("w"):
-                tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
-            elif keyboard.is_pressed("s"):
-                tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.BACKWARD), (255, MotorAction.BACKWARD)))
-            elif keyboard.is_pressed("a"):
-                tctm_manager.send_cmd(gen_cmd_motor_ctrl((200, MotorAction.BACKWARD), (200, MotorAction.FORWARD)))
-            elif keyboard.is_pressed("d"):
-                tctm_manager.send_cmd(gen_cmd_motor_ctrl((200, MotorAction.FORWARD), (200, MotorAction.BACKWARD)))
-            elif keyboard.is_pressed("q"):
-                break
-            else:
-                tctm_manager.send_cmd(gen_cmd_motor_ctrl((0, MotorAction.NEUTRAL), (0, MotorAction.NEUTRAL)))
-        except Exception as e:
-            print(e)
+    tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (175, MotorAction.FORWARD), (175, MotorAction.FORWARD)))
 
-        time.sleep(0.010)
+    time.sleep(5)
+
+    # Keyboard Control of Bot
+    # while True:
+    #     try:
+    #         if keyboard.is_pressed("w"):
+    #             tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
+    #         elif keyboard.is_pressed("s"):
+    #             tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (255, MotorAction.BACKWARD), (255, MotorAction.BACKWARD)))
+    #         elif keyboard.is_pressed("a"):
+    #             tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (200, MotorAction.BACKWARD), (200, MotorAction.FORWARD)))
+    #         elif keyboard.is_pressed("d"):
+    #             tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (200, MotorAction.FORWARD), (200, MotorAction.BACKWARD)))
+    #         elif keyboard.is_pressed("q"):
+    #             break
+    #         else:
+    #             tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (0, MotorAction.NEUTRAL), (0, MotorAction.NEUTRAL)))
+    #     except Exception as e:
+    #         print(e)
+
+    #     time.sleep(0.010)
     
     tlm_file.close()
     
