@@ -3,23 +3,35 @@
 // Ryan Proffitt
 // This is the component module's (Arduino) core logic.
 
-#define HK_TLM_ON 1
-#define HK_TLM_START 0x50
-#define HK_TLM_END 0x51
-#define HK_HEADER_LEN 0x11
+// General Macros
+#define CMD_NOP 0x00
+#define CMD_STS 0x01
+#define CMD_SYSTEM_CHECK 0x02
+#define CMD_MOTOR_CTRL 0x03
 
-#define HK_STX0_IDX 0x00
-#define HK_STX1_IDX 0x01
-#define HK_MACHINE_ID_IDX 0x02
-#define HK_TLM_TYPE_IDX 0x03
-#define HK_TLM_COUNT_IDX 0x04
-#define HK_CMD_COUNT_IDX 0x05
-#define HK_SENT_TIME0_IDX 0x06
-#define HK_SENT_TIME1_IDX 0x07
-#define HK_SENT_TIME2_IDX 0x08
-#define HK_SENT_TIME3_IDX 0x09
-#define HK_DATA_LEN_IDX 0x10
-#define HK_TLM_DATA_IDX 0x11
+#define TLM_ALIVE 0x00
+#define TLM_STS_RES 0x01
+#define TLM_SYSTEM_CHECK_RES 0x02
+#define TLM_MOTOR_CTRL_RES 0x03
+
+// Telemetry Macros
+#define TLM_ON 1
+#define TLM_START 0x50
+#define TLM_END 0x51
+#define TLM_HEADER_LEN 11
+
+#define TLM_STX0_IDX 0
+#define TLM_STX1_IDX 1
+#define TLM_MACHINE_ID_IDX 2
+#define TLM_TYPE_IDX 3
+#define TLM_COUNT_IDX 4
+#define TLM_CMD_COUNT_IDX 5
+#define TLM_SENT_TIME0_IDX 6
+#define TLM_SENT_TIME1_IDX 7
+#define TLM_SENT_TIME2_IDX 8
+#define TLM_SENT_TIME3_IDX 9
+#define TLM_DATA_LEN_IDX 10
+#define TLM_DATA_IDX 11
 
 //left motor
 #define MOTOR0_ENABLE_PIN 11
@@ -57,13 +69,14 @@ enum CommStatus{
 
 typedef struct{
   byte tlm_cnt;
+  byte cmd_cnt;
   CommStatus pi_com_sts;
   CommStatus motor0_com_sts;
   CommStatus motor1_com_sts;
 }Comms;
 
 typedef struct{
-  unsigned long last_hk_time;
+  unsigned long last_TLM_time;
   byte machine_id;
   Motor motor0;
   Motor motor1;
@@ -91,6 +104,7 @@ int InitializeComms(Comms *comms){
 
   comms->pi_com_sts = OK;
   comms->tlm_cnt = 0;
+  comms->cmd_cnt = 0;
   Serial.write("Arduino connected.\n");
   return 0;
 }
@@ -118,25 +132,28 @@ void ChangeMotorAction(Motor *motor, MotorAction motor_action){
   }
 }
 
-void SendHkTlm(State *state){
-  if(HK_TLM_ON && millis() - state->last_hk_time >= 1000){
+# 
+void SendTlmAlive(State *state){
+  if(TLM_ON && millis() - state->last_TLM_time >= 1000){
     state->comms.tlm_cnt += 1;
-    byte tlm[HK_TLM_LEN];
-    tlm[HK_STX0_IDX] = HK_TLM_START;
-    tlm[HK_STX1_IDX] = HK_TLM_START;
-    tlm[HK_MACHINE_ID] = state->machine_id;
-    tlm[HK_TLM_COUNT] = state->comms.tlm_cnt;
-    tlm[HK_MOTOR0_IDX] = state->motor0.pwm_val;
-    tlm[HK_MOTOR1_IDX] = state->motor1.pwm_val;
-    tlm[HK_SENT_TIME0_IDX] = (state->last_hk_time >> 24) & 0xFF;
-    tlm[HK_SENT_TIME1_IDX] = (state->last_hk_time >> 16) & 0xFF;
-    tlm[HK_SENT_TIME2_IDX] = (state->last_hk_time >> 8) & 0xFF;
-    tlm[HK_SENT_TIME3_IDX] = state->last_hk_time & 0xFF;
-    tlm[HK_END0_IDX] = HK_TLM_END;
-    tlm[HK_END1_IDX] = HK_TLM_END;
+    const byte tlm_len = 12;
+    byte tlm[tlm_len];
+    tlm[TLM_STX0_IDX] = TLM_START;
+    tlm[TLM_STX1_IDX] = TLM_START;
+    tlm[TLM_MACHINE_ID_IDX] = state->machine_id;
+    tlm[TLM_TYPE_IDX] = TLM_ALIVE;
+    tlm[TLM_COUNT_IDX] = state->comms.tlm_cnt;
+    tlm[TLM_CMD_COUNT_IDX] = state->comms.cmd_cnt;
+    tlm[TLM_SENT_TIME0_IDX] = (state->last_TLM_time >> 24) & 0xFF;
+    tlm[TLM_SENT_TIME1_IDX] = (state->last_TLM_time >> 16) & 0xFF;
+    tlm[TLM_SENT_TIME2_IDX] = (state->last_TLM_time >> 8) & 0xFF;
+    tlm[TLM_SENT_TIME3_IDX] = state->last_TLM_time & 0xFF;
+    tlm[TLM_DATA_LEN_IDX] = 0;
+    tlm[11] = TLM_END;
+    tlm[12] = TLM_END;
     
-    Serial.write(tlm, HK_TLM_LEN);
-    state->last_hk_time = millis();
+    Serial.write(tlm, tlm_len);
+    state->last_TLM_time = millis();
   }
 }
 
@@ -199,13 +216,13 @@ void InitializeTestState(TestState *test_state){
 }
 
 void InitializeState(State *state){
-  state->last_hk_time = millis();
+  state->last_TLM_time = millis();
 
   state->machine_id = 0x44;
 
   //Add init() for motors later. want a check for the hardware
-  state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, 127};
-  state->motor1 = {1, MOTOR1_ENABLE_PIN, MOTOR1_FWD_PIN, MOTOR1_BCK_PIN, 127};
+  state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, 0};
+  state->motor1 = {1, MOTOR1_ENABLE_PIN, MOTOR1_FWD_PIN, MOTOR1_BCK_PIN, 0};
   
   state->comms = {ERR, OK, OK};
   InitializeComms(&(state->comms));
@@ -213,10 +230,12 @@ void InitializeState(State *state){
 }
 
 void loop() {
-  SendHkTlm(&state);
+  SendTlmAlive(&state);
 
-  state.motor0.pwm_val = 1;
-  state.motor1.pwm_val = 1;
+  state.motor0.pwm_val = 2;
+  state.motor1.pwm_val = 2;
+  analogWrite(MOTOR0_ENABLE_PIN, 2);
+  analogWrite(MOTOR1_ENABLE_PIN, 2);
   digitalWrite(MOTOR0_FWD_PIN, LOW);
   digitalWrite(MOTOR0_BCK_PIN, HIGH);
   digitalWrite(MOTOR1_FWD_PIN, LOW);

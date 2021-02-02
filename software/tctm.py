@@ -29,57 +29,62 @@ TLM_START_BYTE_VAL = 0x50
 TLM_MACHINE_ID = 0x44
 TLM_END_BYTE_VAL = 0x51
 
+class MotorAction(Enum):
+    backward = 0x00,
+    neutral = 0x01,
+    forward = 0x02
+
 # Manages Tctm
 # Maintains the serial connection, sends commands, and handles telemetry
-class TctmManager(ser_connection):
+class TctmManager():
     def __init__(self, serial_connection):
         self.my_serial_conn = serial_connection
 
-    def send_cmd(cmd):
+    def send_cmd(self, cmd):
         isinstance(cmd, Telecommand)
-        my_serial_conn.write(cmd._to_bytes)
+        self.my_serial_conn.write(cmd._to_bytes)
 
     # Collects telemetry from the serial connection and assembles Telemetry object
     # Returns:
     #   Telemetry Object, None if telemetry found
     #   None, Error if an error was encountered
     #   None, None if no telemetry was found and no error was encountered
-    def recv_tlm():
+    def recv_tlm(self):
         tlm = None
         byte_read = b'0x01'
 
         try:
             while(byte_read):
                 # Check for Start Byte #1
-                byte_read = ser.read(1) # Leave this here for the while loop to check
+                byte_read = self.my_serial_conn.read(1) # Leave this here for the while loop to check
                 if int.from_bytes(byte_read, "big") != TLM_START_BYTE_VAL:
                     continue
 
                 # Start Byte #2
-                if int.from_bytes(ser.read(1), "big") != TLM_START_BYTE_VAL:
+                if int.from_bytes(self.my_serial_conn.read(1), "big") != TLM_START_BYTE_VAL:
                     continue
 
                 # The Machine ID
-                machine_id = int.from_bytes(ser.read(1), "big")
+                machine_id = int.from_bytes(self.my_serial_conn.read(1), "big")
                 if machine_id != TLM_MACHINE_ID:
                     continue
 
                 # The Telemetry Type
-                tlm_type = int.from_bytes(ser.read(1), "big")
+                tlm_type = int.from_bytes(self.my_serial_conn.read(1), "big")
                 if not tlm_type in set(TlmType):
                     continue
 
                 # At this point we have valid telemetry from a machine, let's collect the rest
                 recv_time = time.time()
-                tlm_count = int.from_bytes(ser.read(1), "big")
-                cmd_count = int.from_bytes(ser.read(1), "big")
-                tlm_ms_since_boot = int.from_bytes(ser.read(4), "big")
-                tlm_data_len = int.from_bytes(ser.read(1), "big")
-                tlm_data = list(ser.read(tlm_data_len))
+                tlm_count = int.from_bytes(self.my_serial_conn.read(1), "big")
+                cmd_count = int.from_bytes(self.my_serial_conn.read(1), "big")
+                tlm_ms_since_boot = int.from_bytes(self.my_serial_conn.read(4), "big")
+                tlm_data_len = int.from_bytes(self.my_serial_conn.read(1), "big")
+                tlm_data = list(self.my_serial_conn.read(tlm_data_len))
 
                 # Finally, Check the End Bytes
-                if int.from_bytes(ser.read(1), "big") != TLM_END_BYTE_VAL and \
-                        int.from_bytes(ser.read(1), "big")  != TLM_END_BYTE_VAL:
+                if int.from_bytes(self.my_serial_conn.read(1), "big") != TLM_END_BYTE_VAL and \
+                        int.from_bytes(self.my_serial_conn.read(1), "big")  != TLM_END_BYTE_VAL:
                     raise ValueError("Tlm Found, but End Bytes Missing...")
 
                 # Construct Telemetry Object
@@ -102,11 +107,11 @@ class Telecommand():
         self.cmd_type = cmd_type
         self.cmd_data = cmd_data
         self.end_byte0 = 0x62
-        self.end_byte0 = 0x62
+        self.end_byte1 = 0x62
 
-    def _to_bytes():
+    def _to_bytes(self):
         cmd_bytes = [self.start_byte0, self.start_byte1, self.cmd_type]
-        cmd_bytes.extend(cmd_type)
+        cmd_bytes.extend(self.cmd_type)
         cmd_bytes.extend([self.end_byte0, self.end_byte1])
         return bytes(cmd_bytes)
 
@@ -122,7 +127,7 @@ def gen_cmd_motor_ctrl(leftMotor, rightMotor):
     if not (isinstance(leftMotor[1], MotorAction) and isinstance(rightMotor[1], MotorAction)):
         raise ValueError("motor_action must be of type MotorAction")
 
-    return Telecommand(CMD_MOTOR_CTRL, [leftMotor[0], leftMotor[1], int(rightMotor[0]), int(rightMotor[1]]))
+    return Telecommand(CMD_MOTOR_CTRL, [leftMotor[0], leftMotor[1], rightMotor[0], rightMotor[1]])
 
 #----------------Telemetry-------------------#
 class Telemetry():
