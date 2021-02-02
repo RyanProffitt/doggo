@@ -4,16 +4,22 @@
 // This is the component module's (Arduino) core logic.
 
 // General Macros
-#define CMD_START 0x60
-#define CMD_END 0x61
+#define CMD_START_BYTE_VAL 0x60
+#define CMD_END_BYTE_VAL 0x61
 
 #define CMD_NOP 0x00
 #define CMD_STS 0x01
 #define CMD_SYSTEM_CHECK 0x02
 #define CMD_MOTOR_CTRL 0x03
+#define CMD_RESERVED 0xFF
 
-#define TLM_START 0x50
-#define TLM_END 0x51
+#define CMD_EXEC_STS_OK 0
+#define CMD_EXEC_STS_DOMAIN_ERR 1
+#define CMD_EXEC_STS_DATA_LEN_ERR 2
+#define CMD_EXEC_STS_INVALID_CMD 3
+
+#define TLM_START_BYTE_VAL 0x50
+#define TLM_END_BYTE_VAL 0x51
 
 #define TLM_ALIVE 0x00
 #define TLM_STS_RES 0x01
@@ -122,23 +128,20 @@ int InitializeComms(Comms *comms){
   return 0;
 }
 
-void ChangeMotorAction(Motor *motor, MotorAction motor_action){
+void ChangeMotorAction(Motor *motor, byte pwm_val, MotorAction motor_action){
   switch(motor_action){
    case BACKWARD:
-      motor->pwm_val = 0;
-      //TODO: update PWM pin HERE
+      motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, HIGH);
       break;
     case NEUTRAL:
-      motor->pwm_val = 127;
-      //TODO: update PWM pin HERE
+      motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, LOW);
       break;
     case FORWARD:
-      motor->pwm_val = 255;
-      //TODO: update PWM pin HERE
+      motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, HIGH);
       digitalWrite(motor->bck_pin, LOW);
       break; 
@@ -150,8 +153,8 @@ void SendTlmAlive(State *state){
     state->comms.tlm_cnt += 1;
     const byte tlm_len = 12;
     byte tlm[tlm_len];
-    tlm[TLM_STX0_IDX] = TLM_START;
-    tlm[TLM_STX1_IDX] = TLM_START;
+    tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
+    tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
     tlm[TLM_MACHINE_ID_IDX] = state->machine_id;
     tlm[TLM_TYPE_IDX] = TLM_ALIVE;
     tlm[TLM_COUNT_IDX] = state->comms.tlm_cnt;
@@ -161,27 +164,59 @@ void SendTlmAlive(State *state){
     tlm[TLM_SENT_TIME2_IDX] = (state->last_TLM_time >> 8) & 0xFF;
     tlm[TLM_SENT_TIME3_IDX] = state->last_TLM_time & 0xFF;
     tlm[TLM_DATA_LEN_IDX] = 0;
-    tlm[11] = TLM_END;
-    tlm[12] = TLM_END;
+    tlm[11] = TLM_END_BYTE_VAL;
+    tlm[12] = TLM_END_BYTE_VAL;
     
     Serial.write(tlm, tlm_len);
     state->last_TLM_time = millis();
   }
 }
 
-void InterpretCmd(RecvdCmd cmd){
-  printf("hey");
+int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
+  // Perform Cmd Checks
+  if(cmd->data_len != 4){
+    return CMD_EXEC_STS_DATA_LEN_ERR;
+  }
+  if(cmd->data[1] > 2 || cmd->data[3] > 2){
+    return CMD_EXEC_STS_DOMAIN_ERR;
+  }
+
+  ChangeMotorAction(&(state->motor0), cmd->data[0], (MotorAction)cmd->data[1]);
+  ChangeMotorAction(&(state->motor0), cmd->data[2], (MotorAction)cmd->data[3]);
+
+  return CMD_EXEC_STS_OK;
+}
+
+#define CMD_NOP 0x00
+#define CMD_STS 0x01
+#define CMD_SYSTEM_CHECK 0x02
+#define CMD_MOTOR_CTRL 0x03
+#define CMD_RESERVED 0xFF
+int InterpretCmd(State *state, RecvdCmd *cmd){
+  int cmd_exec_sts = 0;
+
+  //TODO CMD_NOP, CMD_STS, CMD_SYSTEM_CHECK
+  switch(cmd->cmd_type){
+    case CMD_MOTOR_CTRL:
+      cmd_exec_sts = CmdExec_MotorCtrl(state, cmd);
+      break;
+    default:
+      cmd_exec_sts = CMD_EXEC_STS_INVALID_CMD;
+      break;
+      
+    return cmd_exec_sts;
+  }
 }
 
 // Receive and interpret commands via serial
 void RcvCmds(State *state){
   while(Serial.available() != 0){
     // Check for Start Byte #1
-    if(Serial.read() != CMD_START){continue;}
+    if(Serial.read() != CMD_START_BYTE_VAL){continue;}
 
     // Check for Start Byte #2
     if(Serial.available() == 0){break;}
-    if(Serial.read() != CMD_START){continue;}
+    if(Serial.read() != CMD_START_BYTE_VAL){continue;}
 
     // Check for Machine ID
     if(Serial.available() == 0){break;}
@@ -206,13 +241,14 @@ void RcvCmds(State *state){
 
     // Check End Byte #1
     if(Serial.available() == 0){break;}
-    if(Serial.read() != CMD_END){continue;}
+    if(Serial.read() != CMD_END_BYTE_VAL){continue;}
 
     // Check End Byte #2
     if(Serial.available() == 0){break;}
-    if(Serial.read() != CMD_END){continue;}
+    if(Serial.read() != CMD_END_BYTE_VAL){continue;}
 
-    
+    InterpretCmd(state, &cmd);
+    break;
   }
 }
 
@@ -227,21 +263,21 @@ void motor_test(State *state, TestState *test_state){
     if(test_state->motor_test_state == DEMO_FORWARD){
       switch(test_state->motor_action){
         case NEUTRAL:
-          ChangeMotorAction(&(state->motor0), FORWARD);
-          ChangeMotorAction(&(state->motor1), FORWARD);
+          ChangeMotorAction(&(state->motor0), 175, FORWARD);
+          ChangeMotorAction(&(state->motor1), 175, FORWARD);
         case FORWARD:
           test_state->motor_test_state = DEMO_BACKWARD;
-          ChangeMotorAction(&(state->motor0), NEUTRAL);
-          ChangeMotorAction(&(state->motor1), NEUTRAL);
+          ChangeMotorAction(&(state->motor0), 175, NEUTRAL);
+          ChangeMotorAction(&(state->motor1), 175, NEUTRAL);
       }
     }else if(test_state->motor_test_state == DEMO_BACKWARD){
       switch(test_state->motor_action){
         case NEUTRAL:
-          ChangeMotorAction(&(state->motor0), BACKWARD);
-          ChangeMotorAction(&(state->motor1), BACKWARD);
+          ChangeMotorAction(&(state->motor0), 175, BACKWARD);
+          ChangeMotorAction(&(state->motor1), 175, BACKWARD);
         case FORWARD:
-          ChangeMotorAction(&(state->motor0), NEUTRAL);
-          ChangeMotorAction(&(state->motor1), NEUTRAL); 
+          ChangeMotorAction(&(state->motor0), 175, NEUTRAL);
+          ChangeMotorAction(&(state->motor1), 175, NEUTRAL); 
       }
     }
   }
