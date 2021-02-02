@@ -4,20 +4,27 @@
 // This is the component module's (Arduino) core logic.
 
 // General Macros
+#define CMD_START 0x60
+#define CMD_END 0x61
+
 #define CMD_NOP 0x00
 #define CMD_STS 0x01
 #define CMD_SYSTEM_CHECK 0x02
 #define CMD_MOTOR_CTRL 0x03
+
+#define TLM_START 0x50
+#define TLM_END 0x51
 
 #define TLM_ALIVE 0x00
 #define TLM_STS_RES 0x01
 #define TLM_SYSTEM_CHECK_RES 0x02
 #define TLM_MOTOR_CTRL_RES 0x03
 
+// Command Macros
+#define MAX_CMD_DATA_LEN 256
+
 // Telemetry Macros
 #define TLM_ON 1
-#define TLM_START 0x50
-#define TLM_END 0x51
 #define TLM_HEADER_LEN 11
 
 #define TLM_STX0_IDX 0
@@ -66,6 +73,12 @@ enum CommStatus{
   OK,
   ERR
 };
+
+typedef struct{
+  byte cmd_type;
+  byte data_len;
+  byte data[MAX_CMD_DATA_LEN];
+}RecvdCmd;
 
 typedef struct{
   byte tlm_cnt;
@@ -132,7 +145,6 @@ void ChangeMotorAction(Motor *motor, MotorAction motor_action){
   }
 }
 
-# 
 void SendTlmAlive(State *state){
   if(TLM_ON && millis() - state->last_TLM_time >= 1000){
     state->comms.tlm_cnt += 1;
@@ -154,6 +166,53 @@ void SendTlmAlive(State *state){
     
     Serial.write(tlm, tlm_len);
     state->last_TLM_time = millis();
+  }
+}
+
+void InterpretCmd(RecvdCmd cmd){
+  printf("hey");
+}
+
+// Receive and interpret commands via serial
+void RcvCmds(State *state){
+  while(Serial.available() != 0){
+    // Check for Start Byte #1
+    if(Serial.read() != CMD_START){continue;}
+
+    // Check for Start Byte #2
+    if(Serial.available() == 0){break;}
+    if(Serial.read() != CMD_START){continue;}
+
+    // Check for Machine ID
+    if(Serial.available() == 0){break;}
+    if(Serial.read() != state->machine_id){continue;}
+
+    RecvdCmd cmd;
+
+    // Get Command Type
+    if(Serial.available() == 0){break;}
+    cmd.cmd_type = Serial.read();
+
+    // Get Command Data Length
+    if(Serial.available() == 0){break;}
+    cmd.data_len = Serial.read();
+
+    // Get Command Data
+    byte remaining_serial_bytes = Serial.available();
+    if(remaining_serial_bytes != 0){break;}
+    for(int i = 0; i < remaining_serial_bytes; i++){
+      cmd.data[i] = Serial.read();
+    }
+
+    // Check End Byte #1
+    if(Serial.available() == 0){break;}
+    if(Serial.read() != CMD_END){continue;}
+
+    // Check End Byte #2
+    if(Serial.available() == 0){break;}
+    if(Serial.read() != CMD_END){continue;}
+
+    
   }
 }
 
@@ -231,32 +290,33 @@ void InitializeState(State *state){
 
 void loop() {
   SendTlmAlive(&state);
+  RcvCmds(&state);
 
-  delay(500);
-  state.motor0.pwm_val = 75;
-  state.motor1.pwm_val = 75;
-  analogWrite(MOTOR0_ENABLE_PIN, 75);
-  analogWrite(MOTOR1_ENABLE_PIN, 75);
-  digitalWrite(MOTOR0_FWD_PIN, LOW);
-  digitalWrite(MOTOR0_BCK_PIN, HIGH);
-  digitalWrite(MOTOR1_FWD_PIN, LOW);
-  digitalWrite(MOTOR1_BCK_PIN, HIGH);
+  // delay(500);
+  // state.motor0.pwm_val = 75;
+  // state.motor1.pwm_val = 75;
+  // analogWrite(MOTOR0_ENABLE_PIN, 75);
+  // analogWrite(MOTOR1_ENABLE_PIN, 75);
+  // digitalWrite(MOTOR0_FWD_PIN, LOW);
+  // digitalWrite(MOTOR0_BCK_PIN, HIGH);
+  // digitalWrite(MOTOR1_FWD_PIN, LOW);
+  // digitalWrite(MOTOR1_BCK_PIN, HIGH);
 
-  delay(500);
-  analogWrite(MOTOR0_ENABLE_PIN, 75);
-  analogWrite(MOTOR1_ENABLE_PIN, 75);
-  digitalWrite(MOTOR0_FWD_PIN, HIGH);
-  digitalWrite(MOTOR0_BCK_PIN, LOW);
-  digitalWrite(MOTOR1_FWD_PIN, HIGH);
-  digitalWrite(MOTOR1_BCK_PIN, LOW);
+  // delay(500);
+  // analogWrite(MOTOR0_ENABLE_PIN, 75);
+  // analogWrite(MOTOR1_ENABLE_PIN, 75);
+  // digitalWrite(MOTOR0_FWD_PIN, HIGH);
+  // digitalWrite(MOTOR0_BCK_PIN, LOW);
+  // digitalWrite(MOTOR1_FWD_PIN, HIGH);
+  // digitalWrite(MOTOR1_BCK_PIN, LOW);
 
-  delay(500);
-  analogWrite(MOTOR0_ENABLE_PIN, 75);
-  analogWrite(MOTOR1_ENABLE_PIN, 75);
-  digitalWrite(MOTOR0_FWD_PIN, HIGH);
-  digitalWrite(MOTOR0_BCK_PIN, LOW);
-  digitalWrite(MOTOR1_FWD_PIN, HIGH);
-  digitalWrite(MOTOR1_BCK_PIN, LOW);
+  // delay(500);
+  // analogWrite(MOTOR0_ENABLE_PIN, 75);
+  // analogWrite(MOTOR1_ENABLE_PIN, 75);
+  // digitalWrite(MOTOR0_FWD_PIN, HIGH);
+  // digitalWrite(MOTOR0_BCK_PIN, LOW);
+  // digitalWrite(MOTOR1_FWD_PIN, HIGH);
+  // digitalWrite(MOTOR1_BCK_PIN, LOW);
   
   //RunTests(&state, &test_state);
 }

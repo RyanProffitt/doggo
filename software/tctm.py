@@ -27,8 +27,12 @@ class TlmType(IntEnum):
 TlmType_VALUES = [t.value for t in set(TlmType)]
 
 # General Constants in Component Module Code
+MACHINE_ID = 0x44
+
+CMD_START_BYTE_VAL = 0x60
+CMD_END_BYTE_VAL = 0x61
+
 TLM_START_BYTE_VAL = 0x50
-TLM_MACHINE_ID = 0x44
 TLM_END_BYTE_VAL = 0x51
 
 class MotorAction(IntEnum):
@@ -39,6 +43,7 @@ class MotorAction(IntEnum):
 # Manages Tctm
 # Maintains the serial connection, sends commands, and handles telemetry
 class TctmManager():
+    #TODO Make all command generators a function of this class
     def __init__(self, serial_connection=None):
         self.my_serial_conn = serial_connection
 
@@ -74,7 +79,7 @@ class TctmManager():
 
                 # The Machine ID
                 machine_id = int.from_bytes(self.my_serial_conn.read(1), "big")
-                if machine_id != TLM_MACHINE_ID:
+                if machine_id != MACHINE_ID:
                     continue
 
                 # The Telemetry Type
@@ -110,16 +115,17 @@ class TctmManager():
 # cmd_data - A list of byte values that mark the command data
 #       ! It is up to the telecommand generator to pack these bytes correctly !
 class Telecommand():
-    def __init__(self, cmd_type, cmd_data):
-        self.start_byte0 = 0x61
-        self.start_byte1 = 0x61
+    def __init__(self, machine_id, cmd_type, cmd_data):
+        self.start_byte0 = CMD_START_BYTE_VAL
+        self.start_byte1 = CMD_START_BYTE_VAL
+        self.destination_machine_id = machine_id
         self.cmd_type = int(cmd_type)
         self.cmd_data = cmd_data
-        self.end_byte0 = 0x62
-        self.end_byte1 = 0x62
+        self.end_byte0 = CMD_END_BYTE_VAL
+        self.end_byte1 = CMD_END_BYTE_VAL
 
     def _to_bytes(self):
-        cmd_bytes = [self.start_byte0, self.start_byte1, self.cmd_type]
+        cmd_bytes = [self.start_byte0, self.start_byte1, self.destination_machine_id, self.cmd_type, len(cmd_data)]
         cmd_bytes.extend(self.cmd_data)
         cmd_bytes.extend([self.end_byte0, self.end_byte1])
         return bytes(cmd_bytes)
@@ -130,13 +136,13 @@ class Telecommand():
 #   rightMotor - (pwm_val, motor_action)
 #       pwm_val - A byte representing the PWM value that controls motor power
 #       motor_action - An Enum MotorAction representing the motor direction
-def gen_cmd_motor_ctrl(leftMotor, rightMotor):
+def gen_cmd_motor_ctrl(destination_machine_id, leftMotor, rightMotor):
     if not (0 <= leftMotor[0] <= 255 and 0 <= rightMotor[0] <= 255):
         raise ValueError("pwm_val must be uint8")
     if not (isinstance(leftMotor[1], MotorAction) and isinstance(rightMotor[1], MotorAction)):
         raise ValueError("motor_action must be of type MotorAction")
 
-    return Telecommand(CmdType.CMD_MOTOR_CTRL, [leftMotor[0], int(leftMotor[1]), rightMotor[0], int(rightMotor[1])])
+    return Telecommand(destination_machine_id, CmdType.CMD_MOTOR_CTRL, [leftMotor[0], int(leftMotor[1]), rightMotor[0], int(rightMotor[1])])
 
 #----------------Telemetry-------------------#
 class Telemetry():
@@ -160,13 +166,14 @@ def test_tctm():
     print("Testing TCTM...")
 
     # Test Motor Control Command
-    cmd = gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD))
-    assert([97, 97, 3, 255, 2, 255, 2, 98, 98] == list(cmd._to_bytes()))
+    destination_machine_id = MACHINE_ID
+    cmd = gen_cmd_motor_ctrl(destination_machine_id, (255, MotorAction.FORWARD), (255, MotorAction.FORWARD))
+    assert([97, 97, 68, 3, 4, 255, 2, 255, 2, 98, 98] == list(cmd._to_bytes()))
 
     # Test TCTM Manager Construction
     tctm_manager = TctmManager()
     try:
-        tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
+        tctm_manager.send_cmd(gen_cmd_motor_ctrl(destination_machine_id, (255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
     except ValueError:
         pass
 

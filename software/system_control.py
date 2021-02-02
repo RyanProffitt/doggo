@@ -5,6 +5,7 @@
 # This is the core logic of the control module (Raspberry Pi 4B).
 
 import serial
+import time
 from multiprocessing import Process
 import keyboard
 
@@ -61,6 +62,8 @@ def main():
                 tctm_manager.send_cmd(gen_cmd_motor_ctrl((0, MotorAction.NEUTRAL), (0, MotorAction.NEUTRAL)))
         except Exception as e:
             print(e)
+
+        time.sleep(0.010)
     
     tlm_file.close()
     
