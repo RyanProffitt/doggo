@@ -16,6 +16,7 @@ class CmdType(IntEnum):
     CMD_STS = 0x01
     CMD_SYSTEM_CHECK = 0x02
     CMD_MOTOR_CTRL = 0x03
+CmdType_VALUES = [c.value for c in set(CmdType)]
 
 # All possible telemetry types
 class TlmType(IntEnum):
@@ -31,19 +32,25 @@ TLM_MACHINE_ID = 0x44
 TLM_END_BYTE_VAL = 0x51
 
 class MotorAction(IntEnum):
-    backward = 0x00,
-    neutral = 0x01,
-    forward = 0x02
+    BACKWARD = 0x00,
+    NEUTRAL = 0x01,
+    FORWARD = 0x02
 
 # Manages Tctm
 # Maintains the serial connection, sends commands, and handles telemetry
 class TctmManager():
-    def __init__(self, serial_connection):
+    def __init__(self, serial_connection=None):
         self.my_serial_conn = serial_connection
 
     def send_cmd(self, cmd):
         isinstance(cmd, Telecommand)
-        self.my_serial_conn.write(cmd._to_bytes)
+        try:
+            self.my_serial_conn.write(cmd._to_bytes())
+        except Exception as e:
+            if self.my_serial_conn == None:
+                raise ValueError("Serial connection was never initialized.")
+            else:
+                raise e
 
     # Collects telemetry from the serial connection and assembles Telemetry object
     # Returns:
@@ -106,14 +113,14 @@ class Telecommand():
     def __init__(self, cmd_type, cmd_data):
         self.start_byte0 = 0x61
         self.start_byte1 = 0x61
-        self.cmd_type = cmd_type
+        self.cmd_type = int(cmd_type)
         self.cmd_data = cmd_data
         self.end_byte0 = 0x62
         self.end_byte1 = 0x62
 
     def _to_bytes(self):
         cmd_bytes = [self.start_byte0, self.start_byte1, self.cmd_type]
-        cmd_bytes.extend(self.cmd_type)
+        cmd_bytes.extend(self.cmd_data)
         cmd_bytes.extend([self.end_byte0, self.end_byte1])
         return bytes(cmd_bytes)
 
@@ -129,7 +136,7 @@ def gen_cmd_motor_ctrl(leftMotor, rightMotor):
     if not (isinstance(leftMotor[1], MotorAction) and isinstance(rightMotor[1], MotorAction)):
         raise ValueError("motor_action must be of type MotorAction")
 
-    return Telecommand(CmdType.CMD_MOTOR_CTRL, [leftMotor[0], leftMotor[1], rightMotor[0], rightMotor[1]])
+    return Telecommand(CmdType.CMD_MOTOR_CTRL, [leftMotor[0], int(leftMotor[1]), rightMotor[0], int(rightMotor[1])])
 
 #----------------Telemetry-------------------#
 class Telemetry():
@@ -150,5 +157,19 @@ class Telemetry():
             return "Not Defined Yet"
 
 def test_tctm():
-    #TODO
-    print("Blah")
+    print("Testing TCTM...")
+
+    # Test Motor Control Command
+    cmd = gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD))
+    assert([97, 97, 3, 255, 2, 255, 2, 98, 98] == list(cmd._to_bytes()))
+
+    # Test TCTM Manager Construction
+    tctm_manager = TctmManager()
+    try:
+        tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
+    except ValueError:
+        pass
+
+    print("Passed TCTM tests.")
+
+test_tctm()

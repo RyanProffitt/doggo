@@ -5,19 +5,22 @@
 # This is the core logic of the control module (Raspberry Pi 4B).
 
 import serial
-import multiprocessing
+from multiprocessing import Process
+import keyboard
 
 import machine_state
 import tctm
+from tctm import MotorAction as MotorAction
+from tctm import gen_cmd_motor_ctrl
 
-def listen_for_hk(tctm_manager, state, tlm_file):
+def listen_for_tlm(tctm_manager, state, tlm_file):
     while(True):
         tlm, error = tctm_manager.recv_tlm()
 
         if tlm:
-            print(tlm)
+            tlm_file.write(str(tlm), "\n")
         elif error:
-            print(error)
+            tlm_file.write(str(tlm), "\n")
 
 def main():
     robo_state = machine_state.MachineState(serial_port="/dev/ttyACM0")
@@ -38,9 +41,26 @@ def main():
     print("Listening for telemetry and awaiting commands...")
 
     tlm_file = open("/home/pi/doggo/software/tlm_files/tlm_output", "w") #TODO: time based file names
-    listen_for_hk(tctm_manager, robo_state, tlm_file)
+    tlm_process = Process(target=listen_for_tlm, args=(tctm_manager, robo_state, tlm_file,))
+    tlm_process.start()
 
-    #TODO set up command issuing
+    # Keyboard Control of Bot
+    while True:
+        try:
+            if keyboard.is_pressed("w"):
+                tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.FORWARD), (255, MotorAction.FORWARD)))
+            elif keyboard.is_pressed("s"):
+                tctm_manager.send_cmd(gen_cmd_motor_ctrl((255, MotorAction.BACKWARD), (255, MotorAction.BACKWARD)))
+            elif keyboard.is_pressed("a"):
+                tctm_manager.send_cmd(gen_cmd_motor_ctrl((200, MotorAction.BACKWARD), (200, MotorAction.FORWARD)))
+            elif keyboard.is_pressed("d"):
+                tctm_manager.send_cmd(gen_cmd_motor_ctrl((200, MotorAction.FORWARD), (200, MotorAction.BACKWARD)))
+            elif keyboard.is_pressed("q"):
+                break
+            else:
+                tctm_manager.send_cmd(gen_cmd_motor_ctrl((0, MotorAction.NEUTRAL), (0, MotorAction.NEUTRAL)))
+        except Exception as e:
+            print(e)
     
     tlm_file.close()
     
