@@ -53,6 +53,8 @@ typedef struct{
 }Comms;
 
 // Telemetry Definitions //
+#define MAX_TLM_ARRAY_SIZE 256
+
 #define TLM_START_BYTE_VAL 0x50
 #define TLM_END_BYTE_VAL 0x51
 
@@ -77,6 +79,7 @@ enum TelemetryType{
   TLM_TYPE_CMD_ACK,
 };
 #define TLM_TYPE_HK_DATA_LEN 0
+#define TLM_TYPE_CMD_ACK_DATA_LEN 1
 
 // Command Definitions //
 #define CMD_START_BYTE_VAL 0x60
@@ -98,7 +101,7 @@ enum CommandExecutionStatus{
 };
 
 typedef struct{
-  byte cmd_type;
+  CommandType cmd_type;
   byte data_len;
   byte *data;
 }RecvdCmd;
@@ -169,6 +172,15 @@ void SendTlmHk(State *state){
   }
 }
 
+// Sends a Command Acknowledgement telemetry via the communication hardware.
+// Accepts:
+//  state - A pointer to the machine state.
+//  cmd - A pointer to the received command.
+void SendTlmCmdAck(State *state, RecvdCmd *cmd){
+  byte data[TLM_TYPE_CMD_ACK_DATA_LEN] = {(byte)(cmd->cmd_type)};
+  SendTlm(state, TLM_TYPE_CMD_ACK, data, TLM_TYPE_CMD_ACK_DATA_LEN);
+}
+
 // This function sends telemetry packet via Serial.
 // A telemetry packet contains Header, Data Field, and Tail bytes.
 // Increments (state->comms).tlm_cnt on success.
@@ -183,12 +195,14 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
     return COMMS_ERR;
   }
 
+  byte tlm[MAX_TLM_ARRAY_SIZE];
+
   // Set Header Variables
-  byte tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
-  byte tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
-  byte tlm[TLM_MACHINE_ID_IDX] = (state->comms).machine_id;
-  byte tlm[TLM_TYPE_IDX] = (byte)tlm_type;
-  byte tlm[TLM_COUNT_IDX] = (state->comms).tlm_cnt;
+  tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
+  tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
+  tlm[TLM_MACHINE_ID_IDX] = (state->comms).machine_id;
+  tlm[TLM_TYPE_IDX] = (byte)tlm_type;
+  tlm[TLM_COUNT_IDX] = (state->comms).tlm_cnt;
   tlm[TLM_SENT_TIME0_IDX] = ((state->comms).last_hk_time_since_boot >> 24) & 0xFF;
   tlm[TLM_SENT_TIME1_IDX] = ((state->comms).last_hk_time_since_boot >> 16) & 0xFF;
   tlm[TLM_SENT_TIME2_IDX] = ((state->comms).last_hk_time_since_boot >> 8) & 0xFF;
@@ -205,7 +219,7 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   tlm[TLM_DATA_IDX + data_len + 1] = TLM_END_BYTE_VAL;
 
   // Send packet and check status
-  size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TAIL_SIZE);
+  size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TAIL_SIZE;
   if(Serial.write(tlm, tlm_packet_size) == tlm_packet_size){
     (state->comms).tlm_cnt++;
     return COMMS_OK;
@@ -219,7 +233,7 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
 // Accepts:
 //  state - A pointer to the machine state
 //  cmd - A pointer to the command
-int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
+CommandExecutionStatus CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
   // Perform Cmd Checks
   if(cmd->data_len != 4){
     return CMD_EXEC_STS_DATA_LEN_ERR;
@@ -234,11 +248,17 @@ int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
   return CMD_EXEC_STS_OK;
 }
 
-// This function 
-int InterpretCmd(State *state, RecvdCmd *cmd){
-  int cmd_exec_sts = 0;
+// This function interprets received commands.
+// Calls the appropriate execution function.
+// Accepts:
+//  state - A pointer to the machine state.
+//  cmd - A pointer to the received command.
+// Returns:
+//  The command execution status
+CommandExecutionStatus InterpretCmd(State *state, RecvdCmd *cmd){
+  CommandExecutionStatus cmd_exec_sts;
 
-  //TODO CMD_NOP, CMD_STS, CMD_SYSTEM_CHECK
+  //TODO: Add more commands
   switch(cmd->cmd_type){
     case CMD_MOTOR_CTRL:
       cmd_exec_sts = CmdExec_MotorCtrl(state, cmd);
@@ -251,8 +271,16 @@ int InterpretCmd(State *state, RecvdCmd *cmd){
   }
 }
 
-// Receive and interpret commands via serial
+// Receives data via the appropriate communication hardware extracts command bytes.
+// Calls the command interpreter.
+// Sends a command ACK if a command was successfully executed.
+// This blocks until all bytes are read from the comms buffer OR a command was found.
+// Increments (state->comms).cmd_cnt if a command is found.
+// Accepts:
+//  state - A pointer to the machine state.
 void RcvCmds(State *state){
+  //TODO: Check comms status, return comms status
+
   while(Serial.available() != 0){
     // Check for Start Byte #1
     if(Serial.read() != CMD_START_BYTE_VAL){continue;}
@@ -263,13 +291,13 @@ void RcvCmds(State *state){
 
     // Check for Machine ID
     if(Serial.available() == 0){break;}
-    if(Serial.read() != state->machine_id){continue;}
+    if(Serial.read() != (state->comms).machine_id){continue;}
 
     RecvdCmd cmd;
 
     // Get Command Type
     if(Serial.available() == 0){break;}
-    cmd.cmd_type = Serial.read();
+    cmd.cmd_type = (CommandType)Serial.read();
 
     // Get Command Data Length
     if(Serial.available() == 0){break;}
@@ -290,17 +318,24 @@ void RcvCmds(State *state){
     if(Serial.available() == 0){break;}
     if(Serial.read() != CMD_END_BYTE_VAL){continue;}
 
-    byte interpret_sts = 0;
-    interpret_sts = InterpretCmd(state, &cmd);
+    CommandExecutionStatus interpretation_sts;
+    interpretation_sts = InterpretCmd(state, &cmd);
 
-
+    if(interpretation_sts == CMD_EXEC_STS_OK){
+      SendTlmCmdAck(state, &cmd); // Not going to act on failed ACKs
+      (state->comms).cmd_cnt++;
+    }
 
     break;
   }
 }
 
+// Calls the below functions at 1hz.
+// Intended to reduce processor load.
+// Accepts:
+//  state - A pointer to the machine state.
 void Perform1hzFunctions(State *state){
-  if(millis() - state->last_hk_time_since_boot >= 1000){
+  if(millis() - (state->comms).last_hk_time_since_boot >= 1000){
     SendTlmHk(state);
   }
 }
