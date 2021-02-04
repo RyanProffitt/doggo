@@ -3,35 +3,61 @@
 // Ryan Proffitt
 // This is the component module's (Arduino) core logic.
 
-// General Macros
-#define CMD_START_BYTE_VAL 0x60
-#define CMD_END_BYTE_VAL 0x61
+// Hardware Definitions : Motors //
+enum MotorAction{
+  MOTOR_ACTION_BACKWARD,
+  MOTOR_ACTION_NEUTRAL,
+  MOTOR_ACTION_FORWARD,
+};
 
-#define CMD_NOP 0x00
-#define CMD_STS 0x01
-#define CMD_SYSTEM_CHECK 0x02
-#define CMD_MOTOR_CTRL 0x03
-#define CMD_RESERVED 0xFF
+#define MOTOR0_ENABLE_PIN 11 // Left Motor
+#define MOTOR0_FWD_PIN 5
+#define MOTOR0_BCK_PIN 6
 
-#define CMD_EXEC_STS_OK 0
-#define CMD_EXEC_STS_DOMAIN_ERR 1
-#define CMD_EXEC_STS_DATA_LEN_ERR 2
-#define CMD_EXEC_STS_INVALID_CMD 3
+#define MOTOR1_ENABLE_PIN 10 // Right Motor
+#define MOTOR1_FWD_PIN 3
+#define MOTOR1_BCK_PIN 4
 
+typedef struct{
+  int motor_id;
+  int enable_pin;
+  int fwd_pin;
+  int bck_pin;
+  MotorAction action;
+  byte pwm_val;
+}Motor;
+
+// Hardware Definitions : Communications //
+#define MACHINE_ID 0x44
+#define COMMS_POWER 1
+
+enum CommsHardware{
+  SERIAL_CABLE,
+  WIFI_UNIT,
+  BLUETOOTH_UNIT,
+  RADIO_UNIT
+};
+
+enum CommsStatus{
+  COMMS_OK,
+  COMMS_ERR
+};
+
+typedef struct{
+  byte machine_id;
+  byte tlm_cnt;
+  byte cmd_cnt;
+  CommsHardware comms_hw;
+  CommsStatus comms_sts;
+  unsigned long last_hk_time_since_boot;
+}Comms;
+
+// Telemetry Definitions //
 #define TLM_START_BYTE_VAL 0x50
 #define TLM_END_BYTE_VAL 0x51
 
-#define TLM_ALIVE 0x00
-#define TLM_STS_RES 0x01
-#define TLM_SYSTEM_CHECK_RES 0x02
-#define TLM_MOTOR_CTRL_RES 0x03
-
-// Command Macros
-#define MAX_CMD_DATA_LEN 256
-
-// Telemetry Macros
-#define TLM_ON 1
-#define TLM_HEADER_LEN 11
+#define TLM_HEADER_SIZE 11
+#define TLM_TAIL_SIZE 2
 
 #define TLM_STX0_IDX 0
 #define TLM_STX1_IDX 1
@@ -46,101 +72,83 @@
 #define TLM_DATA_LEN_IDX 10
 #define TLM_DATA_IDX 11
 
-//left motor
-#define MOTOR0_ENABLE_PIN 11
-#define MOTOR0_FWD_PIN 5
-#define MOTOR0_BCK_PIN 6
+enum TelemetryType{
+  TLM_TYPE_HK,
+  TLM_TYPE_CMD_ACK,
+};
+#define TLM_TYPE_HK_DATA_LEN 0
 
-//right motor
-#define MOTOR1_ENABLE_PIN 10
-#define MOTOR1_FWD_PIN 3
-#define MOTOR1_BCK_PIN 4
+// Command Definitions //
+#define CMD_START_BYTE_VAL 0x60
+#define CMD_END_BYTE_VAL 0x61
 
-enum MotorTestState{
-  DEMO_BACKWARD,
-  DEMO_FORWARD
+enum CommandType{
+  CMD_NOP,
+  CMD_MACHINE_STS,
+  CMD_NAVIGATION_CHECK,
+  CMD_MOTOR_CTRL,
+  CMD_RESERVED
 };
 
-enum MotorAction{
-  BACKWARD,
-  NEUTRAL,
-  FORWARD
-};
-
-typedef struct{
-  int motor_id;
-  int enable_pin;
-  int fwd_pin;
-  int bck_pin;
-  byte pwm_val;
-}Motor;
-
-enum CommStatus{
-  OK,
-  ERR
+enum CommandExecutionStatus{
+  CMD_EXEC_STS_OK,
+  CMD_EXEC_STS_DOMAIN_ERR,
+  CMD_EXEC_STS_DATA_LEN_ERR,
+  CMD_EXEC_STS_INVALID_CMD
 };
 
 typedef struct{
   byte cmd_type;
   byte data_len;
-  byte data[MAX_CMD_DATA_LEN];
+  byte *data;
 }RecvdCmd;
 
+// Machine State Definitions //
 typedef struct{
-  byte tlm_cnt;
-  byte cmd_cnt;
-  CommStatus pi_com_sts;
-  CommStatus motor0_com_sts;
-  CommStatus motor1_com_sts;
-}Comms;
-
-typedef struct{
-  unsigned long last_TLM_time;
-  byte machine_id;
   Motor motor0;
   Motor motor1;
   Comms comms;
 }State;
 
-typedef struct{
-  //Movement Test
-  MotorTestState motor_test_state;
-  MotorAction motor_action;
-  unsigned long last_direction_change_time;
-}TestState;
+void InitializeState(State *state){
+  // Motor Init //
+  state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, MOTOR_ACTION_NEUTRAL, 0};
+  state->motor1 = {1, MOTOR1_ENABLE_PIN, MOTOR1_FWD_PIN, MOTOR1_BCK_PIN, MOTOR_ACTION_NEUTRAL, 0};
 
-TestState test_state;
-State state;
-void setup() {
-  InitializeTestState(&test_state);
-  InitializeState(&state);
+  // Communications Init //
+  state->comms = {MACHINE_ID, 0, 0, SERIAL_CABLE, COMMS_ERR};
+  (state->comms).last_hk_time_since_boot = 0;
+  if(COMMS_POWER){
+    //TODO: Add the other communications methods as they are added
+    switch((state->comms).comms_hw){
+      case SERIAL_CABLE:
+        Serial.begin(9600);
+        break;
+    }
+    SendTlmHk(state);
+  }
 }
 
-int InitializeComms(Comms *comms){
-  Serial.begin(9600);
-  //in future i want this to ping pi and look for return
-  //then keep trying if no return ping
+// Motor Functionality //
 
-  comms->pi_com_sts = OK;
-  comms->tlm_cnt = 0;
-  comms->cmd_cnt = 0;
-  Serial.write("Arduino connected.\n");
-  return 0;
-}
-
+// This function changes the direction and power of a given motor.
+// Accepts:
+//  motor - A pointer to a motor
+//  pwm_val - A pulse width modulation value with possible values 0 through 255
+// motor_action - The direction of motor rotation
 void ChangeMotorAction(Motor *motor, byte pwm_val, MotorAction motor_action){
   switch(motor_action){
-   case BACKWARD:
+   case MOTOR_ACTION_BACKWARD:
       motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, HIGH);
       break;
-    case NEUTRAL:
+    case MOTOR_ACTION_NEUTRAL:
       motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, LOW);
       digitalWrite(motor->bck_pin, LOW);
       break;
-    case FORWARD:
+    case MOTOR_ACTION_FORWARD:
       motor->pwm_val = pwm_val;
       digitalWrite(motor->fwd_pin, HIGH);
       digitalWrite(motor->bck_pin, LOW);
@@ -148,54 +156,69 @@ void ChangeMotorAction(Motor *motor, byte pwm_val, MotorAction motor_action){
   }
 }
 
-void SendTlmAlive(State *state){
-  if(TLM_ON && millis() - state->last_TLM_time >= 1000){
-    state->comms.tlm_cnt += 1;
-    const byte tlm_len = 12;
-    byte tlm[tlm_len];
-    tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
-    tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
-    tlm[TLM_MACHINE_ID_IDX] = state->machine_id;
-    tlm[TLM_TYPE_IDX] = TLM_ALIVE;
-    tlm[TLM_COUNT_IDX] = state->comms.tlm_cnt;
-    tlm[TLM_CMD_COUNT_IDX] = state->comms.cmd_cnt;
-    tlm[TLM_SENT_TIME0_IDX] = (state->last_TLM_time >> 24) & 0xFF;
-    tlm[TLM_SENT_TIME1_IDX] = (state->last_TLM_time >> 16) & 0xFF;
-    tlm[TLM_SENT_TIME2_IDX] = (state->last_TLM_time >> 8) & 0xFF;
-    tlm[TLM_SENT_TIME3_IDX] = state->last_TLM_time & 0xFF;
-    tlm[TLM_DATA_LEN_IDX] = 0;
-    tlm[11] = TLM_END_BYTE_VAL;
-    tlm[12] = TLM_END_BYTE_VAL;
-    
-    Serial.write(tlm, tlm_len);
-    state->last_TLM_time = millis();
+// Communications Functionality //
+
+// This function sends HK telemetry via the communication hardware.
+// Will automatically update (state->comms).last_hk_time_since_boot value on success.
+// Accepts
+//  state - The machine state.
+void SendTlmHk(State *state){
+  CommsStatus sts = SendTlm(state, TLM_TYPE_HK, NULL, TLM_TYPE_HK_DATA_LEN);
+  if(sts == COMMS_OK){
+    (state->comms).last_hk_time_since_boot = millis();
   }
 }
 
-// void SendTlmMotorCtrlRes(State *state){
-//   if(TLM_ON && millis() - state->last_TLM_time >= 1000){
-//     state->comms.tlm_cnt += 1;
-//     const byte tlm_len = 12;
-//     byte tlm[tlm_len];
-//     tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
-//     tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
-//     tlm[TLM_MACHINE_ID_IDX] = state->machine_id;
-//     tlm[TLM_TYPE_IDX] = TLM_ALIVE;
-//     tlm[TLM_COUNT_IDX] = state->comms.tlm_cnt;
-//     tlm[TLM_CMD_COUNT_IDX] = state->comms.cmd_cnt;
-//     tlm[TLM_SENT_TIME0_IDX] = (state->last_TLM_time >> 24) & 0xFF;
-//     tlm[TLM_SENT_TIME1_IDX] = (state->last_TLM_time >> 16) & 0xFF;
-//     tlm[TLM_SENT_TIME2_IDX] = (state->last_TLM_time >> 8) & 0xFF;
-//     tlm[TLM_SENT_TIME3_IDX] = state->last_TLM_time & 0xFF;
-//     tlm[TLM_DATA_LEN_IDX] = 0;
-//     tlm[11] = TLM_END_BYTE_VAL;
-//     tlm[12] = TLM_END_BYTE_VAL;
-    
-//     Serial.write(tlm, tlm_len);
-//     state->last_TLM_time = millis();
-//   }
-// }
+// This function sends telemetry packet via Serial.
+// A telemetry packet contains Header, Data Field, and Tail bytes.
+// Increments (state->comms).tlm_cnt on success.
+// Updates (state->comms).comms_sts every time this is called.
+// Accepts
+//  state - A pointer to the machine state struct
+//  tlm_type - The type of telemetry packet (see the available tlm types under enum TelemetryType)
+//  data - The data being sent via telemetry
+//  data_len - The length of the data
+CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned int data_len){
+  if(COMMS_POWER != 1){
+    return COMMS_ERR;
+  }
 
+  // Set Header Variables
+  byte tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
+  byte tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
+  byte tlm[TLM_MACHINE_ID_IDX] = (state->comms).machine_id;
+  byte tlm[TLM_TYPE_IDX] = (byte)tlm_type;
+  byte tlm[TLM_COUNT_IDX] = (state->comms).tlm_cnt;
+  tlm[TLM_SENT_TIME0_IDX] = ((state->comms).last_hk_time_since_boot >> 24) & 0xFF;
+  tlm[TLM_SENT_TIME1_IDX] = ((state->comms).last_hk_time_since_boot >> 16) & 0xFF;
+  tlm[TLM_SENT_TIME2_IDX] = ((state->comms).last_hk_time_since_boot >> 8) & 0xFF;
+  tlm[TLM_SENT_TIME3_IDX] = (state->comms).last_hk_time_since_boot & 0xFF;
+  tlm[TLM_DATA_LEN_IDX] = data_len;
+  
+  // Set Data Field
+  for(int i = 0; i < data_len; i++){
+    tlm[TLM_DATA_IDX + i] = data[i];
+  }
+
+  // Set Tail Variables
+  tlm[TLM_DATA_IDX + data_len] = TLM_END_BYTE_VAL;
+  tlm[TLM_DATA_IDX + data_len + 1] = TLM_END_BYTE_VAL;
+
+  // Send packet and check status
+  size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TAIL_SIZE);
+  if(Serial.write(tlm, tlm_packet_size) == tlm_packet_size){
+    (state->comms).tlm_cnt++;
+    return COMMS_OK;
+  }else{
+    return COMMS_ERR;
+  }
+}
+
+// This function updates the motor states based on the Motor Control command.
+// The motor control command data bytes are formatted as {Motor0 PWM, Motor0 Action, Motor1 PWM, Motor1 Action}
+// Accepts:
+//  state - A pointer to the machine state
+//  cmd - A pointer to the command
 int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
   // Perform Cmd Checks
   if(cmd->data_len != 4){
@@ -211,11 +234,7 @@ int CmdExec_MotorCtrl(State *state, RecvdCmd *cmd){
   return CMD_EXEC_STS_OK;
 }
 
-#define CMD_NOP 0x00
-#define CMD_STS 0x01
-#define CMD_SYSTEM_CHECK 0x02
-#define CMD_MOTOR_CTRL 0x03
-#define CMD_RESERVED 0xFF
+// This function 
 int InterpretCmd(State *state, RecvdCmd *cmd){
   int cmd_exec_sts = 0;
 
@@ -274,84 +293,25 @@ void RcvCmds(State *state){
     byte interpret_sts = 0;
     interpret_sts = InterpretCmd(state, &cmd);
 
+
+
     break;
   }
 }
 
-// Test Overview
-// This code will command the bot to move forward for 500ms, stop, move backwards,
-//    stop, move forwards... and on and on...
-void motor_test(State *state, TestState *test_state){
-  unsigned long tmp_time = millis();
-  if(tmp_time - test_state->last_direction_change_time >= 500){
-    test_state->last_direction_change_time = tmp_time;
-    
-    if(test_state->motor_test_state == DEMO_FORWARD){
-      switch(test_state->motor_action){
-        case NEUTRAL:
-          ChangeMotorAction(&(state->motor0), 175, FORWARD);
-          ChangeMotorAction(&(state->motor1), 175, FORWARD);
-        case FORWARD:
-          test_state->motor_test_state = DEMO_BACKWARD;
-          ChangeMotorAction(&(state->motor0), 175, NEUTRAL);
-          ChangeMotorAction(&(state->motor1), 175, NEUTRAL);
-      }
-    }else if(test_state->motor_test_state == DEMO_BACKWARD){
-      switch(test_state->motor_action){
-        case NEUTRAL:
-          ChangeMotorAction(&(state->motor0), 175, BACKWARD);
-          ChangeMotorAction(&(state->motor1), 175, BACKWARD);
-        case FORWARD:
-          ChangeMotorAction(&(state->motor0), 175, NEUTRAL);
-          ChangeMotorAction(&(state->motor1), 175, NEUTRAL); 
-      }
-    }
+void Perform1hzFunctions(State *state){
+  if(millis() - state->last_hk_time_since_boot >= 1000){
+    SendTlmHk(state);
   }
 }
 
-void RunTests(State *state, TestState *test_state){
-  motor_test(state, test_state);
+State state;
+void setup(){
+  InitializeState(&state);
 }
 
-int InitializeMotors(State *state, bool enable_pwm_control){
-  state->motor0.motor_id = 0;
-  state->motor0.fwd_pin = MOTOR0_FWD_PIN;
-  state->motor0.bck_pin = MOTOR0_BCK_PIN;
-  state->motor0.pwm_val = 0;
-
-  state->motor1.motor_id = 1;
-  state->motor1.fwd_pin = MOTOR1_FWD_PIN;
-  state->motor1.bck_pin = MOTOR1_BCK_PIN;
-  state->motor1.pwm_val = 0;
-
-  //allows for controlling speed
-  if(enable_pwm_control){
-    state->motor0.enable_pin = MOTOR0_ENABLE_PIN;
-    state->motor1.enable_pin = MOTOR1_ENABLE_PIN;
-  }
-}
-
-void InitializeTestState(TestState *test_state){
-  test_state->last_direction_change_time = millis();
-  test_state->motor_test_state = DEMO_FORWARD;
-}
-
-void InitializeState(State *state){
-  state->last_TLM_time = millis();
-
-  state->machine_id = 0x44;
-
-  //Add init() for motors later. want a check for the hardware
-  state->motor0 = {0, MOTOR0_ENABLE_PIN, MOTOR0_FWD_PIN, MOTOR0_BCK_PIN, 0};
-  state->motor1 = {1, MOTOR1_ENABLE_PIN, MOTOR1_FWD_PIN, MOTOR1_BCK_PIN, 0};
-  
-  state->comms = {ERR, OK, OK};
-  InitializeComms(&(state->comms));
-  InitializeMotors(state, true);
-}
-
-void loop() {
-  SendTlmAlive(&state);
+void loop(){
+  Perform1hzFunctions(&state);
   RcvCmds(&state);
 
   // delay(500);
