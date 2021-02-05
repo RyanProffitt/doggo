@@ -65,7 +65,7 @@ typedef struct{
 #define TLM_STX1_IDX 1
 #define TLM_MACHINE_ID_IDX 2
 #define TLM_TYPE_IDX 3
-#define TLM_COUNT_IDX 4
+#define TLM_TLM_COUNT_IDX 4
 #define TLM_CMD_COUNT_IDX 5
 #define TLM_SENT_TIME0_IDX 6
 #define TLM_SENT_TIME1_IDX 7
@@ -202,7 +202,8 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
   tlm[TLM_MACHINE_ID_IDX] = (state->comms).machine_id;
   tlm[TLM_TYPE_IDX] = (byte)tlm_type;
-  tlm[TLM_COUNT_IDX] = (state->comms).tlm_cnt;
+  tlm[TLM_TLM_COUNT_IDX] = (state->comms).tlm_cnt;
+  tlm[TLM_CMD_COUNT_IDX] = (state->comms).cmd_cnt;
   tlm[TLM_SENT_TIME0_IDX] = ((state->comms).last_hk_time_since_boot >> 24) & 0xFF;
   tlm[TLM_SENT_TIME1_IDX] = ((state->comms).last_hk_time_since_boot >> 16) & 0xFF;
   tlm[TLM_SENT_TIME2_IDX] = ((state->comms).last_hk_time_since_boot >> 8) & 0xFF;

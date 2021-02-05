@@ -14,15 +14,6 @@ import tctm
 from tctm import MotorAction as MotorAction
 from tctm import gen_cmd_motor_ctrl
 
-def listen_for_tlm(tctm_manager, state, tlm_file):
-    while(True):
-        tlm, error = tctm_manager.recv_tlm()
-
-        if tlm:
-            tlm_file.write(str(tlm) + "\n")
-        elif error:
-            tlm_file.write(str(error) + "\n")
-
 def main():
     robo_state = machine_state.MachineState(0x44, serial_port="/dev/ttyACM0")
 
@@ -41,13 +32,20 @@ def main():
 
     print("Listening for telemetry and awaiting commands...")
 
-    tlm_file = open("/home/pi/doggo/software/tlm_files/tlm_output", "w") #TODO: time based file names
-    tlm_process = Process(target=listen_for_tlm, args=(tctm_manager, robo_state, tlm_file,))
-    tlm_process.start()
+    while True:
+        tlm, err = tctm_manager.recv_tlm()
+        if tlm:
+            print(str(tlm) + "\n")
+        elif err:
+            print(str(err) + "\n")
 
-    tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (175, MotorAction.FORWARD), (175, MotorAction.FORWARD)))
+    # tlm_file = open("/home/pi/doggo/software/tlm_files/tlm_output", "w") #TODO: time based file names
+    # tlm_process = Process(target=listen_for_tlm, args=(tctm_manager, robo_state, tlm_file,))
+    # tlm_process.start()
 
-    time.sleep(5)
+    # tctm_manager.send_cmd(gen_cmd_motor_ctrl(robo_state.machine_id, (175, MotorAction.FORWARD), (175, MotorAction.FORWARD)))
+
+    # time.sleep(5)
 
     # Keyboard Control of Bot
     # while True:
@@ -69,7 +67,7 @@ def main():
 
     #     time.sleep(0.010)
     
-    tlm_file.close()
+    #tlm_file.close()
     
 if __name__ == "__main__":
     main()
