@@ -5,16 +5,18 @@
 # This provides functionality for monitoring the machine state.
 
 from datetime import datetime
+import serial
+
+import tctm
 
 class MachineState:
-    def __init__(self, machine_id, serial_port=""):
-        self.serial_port = serial_port
+    def __init__(self, machine_id, ):
+        self._machine_id = machine_id
 
-        self.machine_id = machine_id
-        self._is_alive = True
+        # The history of commands that were SENT to machine
+        self._cmd_history = [] #TODO
 
-        self.recvd_cmds = []
+        self.tctm_manager = tctm.TctmManager()
 
     def quick_report(self):
-        report_time = datetime.now().strftime("%H:%M:%S")
-        return "State ({0}), ID: {1}, Alive: {2}, Last Cmd: {3}".format(report_time, self.machine_id, self._is_alive, self.recvd_cmds[-1])
+        return "State ({0}), ID: {1}".format(datetime.now().strftime("%H:%M:%S"), self._machine_id)

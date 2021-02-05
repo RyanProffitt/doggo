@@ -4,7 +4,6 @@
 
 # This is the core logic of the control module (Raspberry Pi 4B).
 
-import serial
 import time
 from multiprocessing import Process
 import keyboard
@@ -15,29 +14,29 @@ from tctm import MotorAction as MotorAction
 from tctm import gen_cmd_motor_ctrl
 
 def main():
-    robo_state = machine_state.MachineState(0x44, serial_port="/dev/ttyACM0")
+    robo = machine_state.MachineState(0x44)
 
-    print("Setting up serial connection with machine...", end=" ")
-    try:
-        serial_conn = serial.Serial(robo_state.serial_port)
-        tctm_manager = tctm.TctmManager(serial_conn)
-        print("done!")
-    except Exception as e:
-        print("\n", e, "\nExiting gracefully.")
-        exit()
-
-    print("Initializing Machine State...", end=" ")
-    #TODO: Initialize
-    print("done!")
+    #TODO Init
 
     print("Listening for telemetry and awaiting commands...")
 
+    last_time = time.time()
+    cmd = gen_cmd_motor_ctrl(0x44, 255, MotorAction.NEUTRAL, 255, MotorAction.NEUTRAL)
     while True:
-        tlm, err = tctm_manager.recv_tlm()
-        if tlm:
-            print(str(tlm) + "\n")
-        elif err:
-            print(str(err) + "\n")
+        if time.time() - last_time >= 1:
+            robo.tctm_manager.send_cmd(cmd)
+            last_time = time.time()
+            print("Sent Command!")
+
+
+        num_waiting = robo.tctm_manager.my_serial_conn.inWaiting()
+        if num_waiting > 0:
+            print(robo.tctm_manager.my_serial_conn.read(num_waiting))
+        # tlm, err = robo.tctm_manager.recv_tlm()
+        # if tlm:
+        #     print(str(tlm) + "\n")
+        # elif err:
+        #     print(str(err) + "\n")
 
     # tlm_file = open("/home/pi/doggo/software/tlm_files/tlm_output", "w") #TODO: time based file names
     # tlm_process = Process(target=listen_for_tlm, args=(tctm_manager, robo_state, tlm_file,))

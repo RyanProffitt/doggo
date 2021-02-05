@@ -111,6 +111,7 @@ typedef struct{
   Motor motor0;
   Motor motor1;
   Comms comms;
+  unsigned long last_1hz_func_exec_time;
 }State;
 
 void InitializeState(State *state){
@@ -128,8 +129,10 @@ void InitializeState(State *state){
         Serial.begin(9600);
         break;
     }
-    SendTlmHk(state);
+    //SendTlmHk(state);
   }
+
+  state->last_1hz_func_exec_time = 0;
 }
 
 // Motor Functionality //
@@ -176,8 +179,8 @@ void SendTlmHk(State *state){
 // Accepts:
 //  state - A pointer to the machine state.
 //  cmd - A pointer to the received command.
-void SendTlmCmdAck(State *state, RecvdCmd *cmd){
-  byte data[TLM_TYPE_CMD_ACK_DATA_LEN] = {(byte)(cmd->cmd_type)};
+void SendTlmCmdAck(State *state, CommandType cmd_type){
+  byte data[TLM_TYPE_CMD_ACK_DATA_LEN] = {(byte)cmd_type};
   SendTlm(state, TLM_TYPE_CMD_ACK, data, TLM_TYPE_CMD_ACK_DATA_LEN);
 }
 
@@ -193,6 +196,8 @@ void SendTlmCmdAck(State *state, RecvdCmd *cmd){
 CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned int data_len){
   if(COMMS_POWER != 1){
     return COMMS_ERR;
+  }else{
+    (state->comms).tlm_cnt++;
   }
 
   byte tlm[MAX_TLM_ARRAY_SIZE];
@@ -204,10 +209,11 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   tlm[TLM_TYPE_IDX] = (byte)tlm_type;
   tlm[TLM_TLM_COUNT_IDX] = (state->comms).tlm_cnt;
   tlm[TLM_CMD_COUNT_IDX] = (state->comms).cmd_cnt;
-  tlm[TLM_SENT_TIME0_IDX] = ((state->comms).last_hk_time_since_boot >> 24) & 0xFF;
-  tlm[TLM_SENT_TIME1_IDX] = ((state->comms).last_hk_time_since_boot >> 16) & 0xFF;
-  tlm[TLM_SENT_TIME2_IDX] = ((state->comms).last_hk_time_since_boot >> 8) & 0xFF;
-  tlm[TLM_SENT_TIME3_IDX] = (state->comms).last_hk_time_since_boot & 0xFF;
+  unsigned long ms_since_boot = millis();
+  tlm[TLM_SENT_TIME0_IDX] = (ms_since_boot >> 24) & 0xFF;
+  tlm[TLM_SENT_TIME1_IDX] = (ms_since_boot >> 16) & 0xFF;
+  tlm[TLM_SENT_TIME2_IDX] = (ms_since_boot >> 8) & 0xFF;
+  tlm[TLM_SENT_TIME3_IDX] = (ms_since_boot) & 0xFF;
   tlm[TLM_DATA_LEN_IDX] = data_len;
   
   // Set Data Field
@@ -222,9 +228,9 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   // Send packet and check status
   size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TAIL_SIZE;
   if(Serial.write(tlm, tlm_packet_size) == tlm_packet_size){
-    (state->comms).tlm_cnt++;
     return COMMS_OK;
   }else{
+    (state->comms).tlm_cnt--;
     return COMMS_ERR;
   }
 }
@@ -282,7 +288,7 @@ CommandExecutionStatus InterpretCmd(State *state, RecvdCmd *cmd){
 void RcvCmds(State *state){
   //TODO: Check comms status, return comms status
 
-  while(Serial.available() != 0){
+  while(Serial.available() > 0){
     // Check for Start Byte #1
     if(Serial.read() != CMD_START_BYTE_VAL){continue;}
 
@@ -323,7 +329,7 @@ void RcvCmds(State *state){
     interpretation_sts = InterpretCmd(state, &cmd);
 
     if(interpretation_sts == CMD_EXEC_STS_OK){
-      SendTlmCmdAck(state, &cmd); // Not going to act on failed ACKs
+      SendTlmCmdAck(state, cmd.cmd_type); // Not going to act on failed ACKs
       (state->comms).cmd_cnt++;
     }
 
@@ -336,8 +342,11 @@ void RcvCmds(State *state){
 // Accepts:
 //  state - A pointer to the machine state.
 void Perform1hzFunctions(State *state){
-  if(millis() - (state->comms).last_hk_time_since_boot >= 1000){
+  unsigned long ms_since_boot = millis();
+  if(millis() - state->last_1hz_func_exec_time >= 1000){
     SendTlmHk(state);
+
+    state->last_1hz_func_exec_time = ms_since_boot;
   }
 }
 
@@ -347,6 +356,16 @@ void setup(){
 }
 
 void loop(){
+  // SendTlmHk(&state);
+  // delay(1000);
+
+  // int num_available = Serial.available();
+  // byte buf[64];
+  // if(num_available > 0){
+  //   Serial.readBytes(buf, num_available);
+  //   SendTlmHk(&state);
+  // }
+  
   Perform1hzFunctions(&state);
   RcvCmds(&state);
 
