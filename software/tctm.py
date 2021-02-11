@@ -7,8 +7,7 @@
 
 import serial
 from enum import IntEnum
-from datetime import datetime
-
+import time
 
 #----------------Hardware Definitions : Motors-------------------#
 class MotorAction(IntEnum):
@@ -19,9 +18,15 @@ class MotorAction(IntEnum):
 #----------------Hardware Definitions : Communications-------------------#
 MACHINE_ID = 0x44
 
+TIMEOUT_FIFTY_MS = 0.050
+
 #----------------Telemetry Definitions-------------------#
 TLM_START_BYTE_VAL = 0x50
 TLM_END_BYTE_VAL = 0x51
+
+TLM_NUM_START_BYTES = 2
+TLM_HEADER_SIZE = 11
+TLM_NUM_ENDER_BYTES = 2
 
 class TlmType(IntEnum):
     TLM_TYPE_HK = 0
@@ -49,7 +54,20 @@ class TctmManager:
         self.my_serial_conn = serial.Serial(serial_port_str, baud_rate, timeout=custom_timeout)
         self.tlm_cnt = 0
         self.cmd_cnt = 0
-        self.last_hk_time_since_boot = 0
+        self.last_time_recvd_any_tlm = 0
+        self.last_time_recvd_hk_tlm = 0
+
+        self._have_start_bytes = False
+        self._have_header_bytes = False
+        self._have_data_and_end_bytes = False
+
+        self.curr_tlm = Telemetry(time.time(),0,0,0,0,0,0,0)
+
+        self._have_start_byte0 = False
+        self._have_start_byte1 = False
+        self._tlm_packet_wout_caps = []
+        self._have_end_byte0 = False
+        self._have_end_byte1 = False
 
     def send_cmd(self, cmd):
         isinstance(cmd, Telecommand)
@@ -82,55 +100,57 @@ class TctmManager:
         else:
             return -1
 
-    # Collects telemetry from the serial connection and assembles Telemetry object
-    # Returns:
-    #   Telemetry Object, None if telemetry found
-    #   None, Error if an error was encountered
-    #   None, None if no telemetry was found and no error was encountered
     def recv_tlm(self):
-        tlm = None
+            try:
+                if not self._have_start_bytes:
+                    # Check for Start Bytes
+                    if self.get_single_byte_as_int() != TLM_START_BYTE_VAL or self.get_single_byte_as_int() != TLM_START_BYTE_VAL:
+                        return None, None
+                    self._have_start_bytes = True
 
-        try:
-            while self.my_serial_conn.inWaiting():
-                # Check for Start Byte #1
-                if self.get_single_byte_as_int() != TLM_START_BYTE_VAL:
-                    continue
+                    # Got Start Bytes - Record the Time to Check Against for Timeout Later
+                    self.curr_tlm.recv_time = time.time()
+                if not self._have_header_bytes:
+                    # Check for Header Bytes
+                    if not self.my_serial_conn.inWaiting() > TLM_HEADER_SIZE - TLM_NUM_START_BYTES:
+                        # Check for Timeout
+                        if time.time() - self.curr_tlm.recv_time >= TIMEOUT_FIFTY_MS:
+                            print("\tTimeout while waiting for header bytes")
+                            return None, TimeoutError
+                        return None, None
+                    self._have_header_bytes = True
 
-                # Start Byte #2
-                if self.get_single_byte_as_int() != TLM_START_BYTE_VAL:
-                    continue
+                    # Got Header Bytes - Set Header Bytes
+                    self.curr_tlm.machine_id = self.get_single_byte_as_int()
+                    self.curr_tlm.tlm_type = self.get_single_byte_as_int()
+                    self.curr_tlm.tlm_count = self.get_single_byte_as_int()
+                    self.curr_tlm.cmd_count = self.get_single_byte_as_int()
+                    self.curr_tlm.ms_since_boot = (self.get_single_byte_as_int() << 24) + \
+                        (self.get_single_byte_as_int() << 16) + (self.get_single_byte_as_int() << 8) + self.get_single_byte_as_int()
+                    self.curr_tlm.tlm_data_len = self.get_single_byte_as_int()
+                if not self._have_data_and_end_bytes:
+                    # Check that there is enough data for Data and End Bytes
+                    if not self.my_serial_conn.inWaiting() >= self.curr_tlm.tlm_data_len + TLM_NUM_ENDER_BYTES:
+                        # Check for Timeout
+                            if time.time() - self.curr_tlm.recv_time >= TIMEOUT_FIFTY_MS:
+                                return None, TimeoutError
+                            return None, None
 
-                # The Machine ID
-                machine_id = self.get_single_byte_as_int()
-                if machine_id != MACHINE_ID:
-                    continue
+                    # Got enough bytes for Data and End Bytes - Set Data
+                    self.curr_tlm.data = self.get_bytes_as_int_list(self.curr_tlm.tlm_data_len)
 
-                # The Telemetry Type
-                tlm_type = self.get_single_byte_as_int()
-                if not tlm_type in TlmType_VALUES:
-                    continue
+                    # Check End Bytes
+                    if self.get_single_byte_as_int() != TLM_END_BYTE_VAL or self.get_single_byte_as_int() != TLM_END_BYTE_VAL:
+                        print("Malformed packet, returning error")
+                        return None, ValueError("Malformed Packet")
 
-                # At this point we have valid telemetry from a machine, let's collect the rest
-                recv_time = datetime.now()
-                tlm_count = self.get_single_byte_as_int()
-                cmd_count = self.get_single_byte_as_int()
-                ms_since_boot = (self.get_single_byte_as_int() << 24) + \
-                    (self.get_single_byte_as_int() << 16) + (self.get_single_byte_as_int() << 8) + self.get_single_byte_as_int()
-                tlm_data_len = self.get_single_byte_as_int()
-                tlm_data = self.get_bytes_as_int_list(tlm_data_len)
+                    self._have_start_bytes = False
+                    self._have_header_bytes = False
+                    self._have_data_and_end_bytes = False
 
-                # Finally, Check the End Bytes
-                end_byte0 = self.get_single_byte_as_int()
-                end_byte1 = self.get_single_byte_as_int()
-                if end_byte0 != TLM_END_BYTE_VAL and end_byte1 != TLM_END_BYTE_VAL:
-                    raise ValueError("Tlm Found, but End Bytes Missing...")
-
-                # Construct Telemetry Object
-                tlm = Telemetry(recv_time, machine_id, tlm_type, tlm_count, cmd_count, ms_since_boot, tlm_data_len, tlm_data)
-                break
-        except Exception as e:
-            return False, e
-        return tlm, None
+                    return self.curr_tlm, None
+            except Exception as e:
+                return None, e
 
 #----------------Telemetry-------------------#
 # This class contains Telemetry information.
@@ -149,7 +169,7 @@ class Telemetry:
 
     def __str__(self):
         return "Tlm:: RecvTime: {0}, MachineID: {1}, TlmType: {2}, TlmCnt: {3}, CmdCnt: {4}, MsSinceBoot: {5}, DataLen: {6}, Data: {7}" \
-                .format(self.recv_time.strftime("%H:%M:%S"), self.machine_id, TlmType(self.tlm_type).name, self.tlm_count, self.cmd_count, self.ms_since_boot, self.tlm_data_len, str(self.tlm_data))
+                .format(self.recv_time, self.machine_id, TlmType(self.tlm_type).name, self.tlm_count, self.cmd_count, self.ms_since_boot, self.tlm_data_len, str(self.tlm_data))
 
 #-----------------Telecommands------------------#
 
@@ -189,6 +209,17 @@ def gen_cmd_motor_ctrl(destination_machine_id, left_motor_pwm, left_motor_action
 
     return Telecommand(destination_machine_id, CmdType.CMD_MOTOR_CTRL, [left_motor_pwm, int(left_motor_action), right_motor_pwm, int(left_motor_action)])
 
+def test_rcv():
+    tctm_manager = TctmManager()
+    
+    while True:
+        tlm, err = tctm_manager.recv_tlm()
+
+        if tlm:
+            print(tlm)
+        elif err:
+            print(err)
+
 def test_tctm():
     print("Testing TCTM...")
 
@@ -212,3 +243,4 @@ def test_tctm():
     print("Passed TCTM tests.")
 
 #test_tctm()
+#test_rcv()

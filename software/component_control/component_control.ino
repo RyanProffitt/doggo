@@ -344,7 +344,8 @@ void RcvCmds(State *state){
 void Perform1hzFunctions(State *state){
   unsigned long ms_since_boot = millis();
   if(millis() - state->last_1hz_func_exec_time >= 1000){
-    SendTlmHk(state);
+    //SendTlmHk(state);
+    SendTlmCmdAck(state, CMD_NOP);
 
     state->last_1hz_func_exec_time = ms_since_boot;
   }
@@ -367,7 +368,7 @@ void loop(){
   // }
   
   Perform1hzFunctions(&state);
-  RcvCmds(&state);
+  //RcvCmds(&state);
 
   // delay(500);
   // state.motor0.pwm_val = 75;
