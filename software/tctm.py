@@ -21,6 +21,18 @@ TLM_END_BYTE_VAL = 0x51
 CMD_START_BYTE_VAL = 0x60
 CMD_END_BYTE_VAL = 0x61
 
+TLM_START_BYTE_IDX = 0
+TLM_MACHINE_ID_IDX = (TLM_START_BYTE_IDX + 1)
+TLM_TYPE_IDX       = (TLM_MACHINE_ID_IDX + 1)
+TLM_TLM_COUNT_IDX  = (TLM_TYPE_IDX + 1)
+TLM_CMD_COUNT_IDX  = (TLM_TLM_COUNT_IDX + 1)
+TLM_SENT_TIME0_IDX = (TLM_CMD_COUNT_IDX + 1)
+TLM_SENT_TIME1_IDX = (TLM_SENT_TIME0_IDX + 1)
+TLM_SENT_TIME2_IDX = (TLM_SENT_TIME1_IDX + 1)
+TLM_SENT_TIME3_IDX = (TLM_SENT_TIME2_IDX + 1)
+TLM_DATA_LEN_IDX   = (TLM_SENT_TIME3_IDX + 1)
+TLM_DATA_IDX       = (TLM_DATA_LEN_IDX + 1)
+
 class TlmType(IntEnum):
     TLM_HK = 0
     TLM_ACK = 1
@@ -39,17 +51,12 @@ CmdType_VALUES = [c.value for c in set(CmdType)]
 # Maintains the serial connection, sends commands, and handles telemetry
 class SerialTctmManager:
     def __init__(self, machine_id, serial_port_str="/dev/ttyACM0", baud_rate=9600, custom_timeout=None):
-        self.machine_id = machine_id
         self.my_serial_conn = serial.Serial(serial_port_str, baud_rate, timeout=custom_timeout)
-        self.registered_machines = {}
         self.tlm_queue = Queue()
 
+        self.machine_id = machine_id
         self.last_time_recvd_hk_tlm = 0
-
-        self.last_time_sent_cmd = 0
-
-        self.tlm_cnt = 0
-        self.cmd_cnt = 0
+        self.last_time_sent_cmd = -1
 
     # def send_cmd(self, cmd):
     #     isinstance(cmd, Telecommand)
@@ -60,27 +67,6 @@ class SerialTctmManager:
     #             raise ValueError("Serial connection was never initialized.")
     #         else:
     #             raise e
-
-    # This non-blocking function checks the serial connection for waiting bytes,
-    #   gets those bytes, converts each to int, and returns a list of the ints.
-    # Returns a list of ints, or -1 if requested amount of bytes not available in serial.
-    def get_bytes_as_int_list(self, num_to_get):
-        if self.my_serial_conn.inWaiting() > num_to_get:
-            incoming_list = []
-            for i in range(num_to_get):
-                incoming_list.append(int.from_bytes(self.my_serial_conn.read(), "big"))
-            return incoming_list
-        else:
-            return None
-    
-    # This non-blocking function checks the serial connection for a waiting byte,
-    #   gets that single byte, converts it to int, and returns it.
-    # Returns the byte, or -1 if no byte available in serial.
-    def get_single_byte_as_int(self):
-        if self.my_serial_conn.inWaiting() > 0:
-            return int.from_bytes(self.my_serial_conn.read(), "big")
-        else:
-            return -1
 
     def _extract_tlm(self):
         header_bytes = self.my_serial_conn.read(TLM_HEADER_SIZE)
@@ -108,6 +94,7 @@ class SerialTctmManager:
         tlm_type = header_bytes[2]
         if tlm_type == TlmType.TLM_HK.value:
             self.tlm_queue.put(HkTelemetry(recv_time, header_bytes, data_bytes))
+            self.last_time_recvd_hk_tlm = time.time()
         else:
             print("Telemetry code", tlm_type, "not implemented.")
 
@@ -133,13 +120,19 @@ class Telemetry:
         self.header_bytes = header_bytes
         self.data_bytes = data_bytes
 
+        self.machine_id = int(header_bytes[TLM_MACHINE_ID_IDX])
+        self.tlm_cnt = int(header_bytes[TLM_TLM_COUNT_IDX])
+        self.cmd_cnt = int(header_bytes[TLM_CMD_COUNT_IDX])
+        self.sent_time = int.from_bytes(header_bytes[TLM_SENT_TIME0_IDX:TLM_SENT_TIME0_IDX + 4], byteorder="big", signed=False)
+
 class HkTelemetry(Telemetry):
     def __init__(self, recv_time, header_bytes, data_bytes):
         Telemetry.__init__(self, recv_time, header_bytes, data_bytes)
         data = None
     
     def __str__(self):
-        return "{}: {}".format(str(self.recv_time), str([int(byt) for byt in (self.header_bytes + self.data_bytes)]))
+        return "{}: {}-> machine_id({}), tlm_cnt({}), cmd_cnt({}), sent_time({})".format(str(self.recv_time), 
+                str(HkTelemetry.__name__), self.machine_id, self.tlm_cnt, self.cmd_cnt, self.sent_time)
 
 # class CmdAckTelemetry(Telemetry):
 #     def __init__(self, recv_time, header_bytes, data_bytes):
