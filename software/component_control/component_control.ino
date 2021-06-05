@@ -53,26 +53,29 @@ typedef struct{
 }Comms;
 
 // Telemetry Definitions //
-#define MAX_TLM_ARRAY_SIZE 256
+#define MAX_TLM_ARRAY_SIZE 128
 
 #define TLM_START_BYTE_VAL 0x50
 #define TLM_END_BYTE_VAL 0x51
 
-#define TLM_HEADER_SIZE 11
-#define TLM_TAIL_SIZE 2
+#define TLM_HEADER_SIZE 10
+#define TLM_TRAILER_SIZE 2
 
-#define TLM_STX0_IDX 0
-#define TLM_STX1_IDX 1
-#define TLM_MACHINE_ID_IDX 2
-#define TLM_TYPE_IDX 3
-#define TLM_TLM_COUNT_IDX 4
-#define TLM_CMD_COUNT_IDX 5
-#define TLM_SENT_TIME0_IDX 6
-#define TLM_SENT_TIME1_IDX 7
-#define TLM_SENT_TIME2_IDX 8
-#define TLM_SENT_TIME3_IDX 9
-#define TLM_DATA_LEN_IDX 10
-#define TLM_DATA_IDX 11
+// HEADER DEFINITION
+#define TLM_START_BYTE_IDX 0
+#define TLM_MACHINE_ID_IDX        (TLM_START_BYTE_IDX + 1)
+#define TLM_TYPE_IDX              (TLM_MACHINE_ID_IDX + 1)
+#define TLM_TLM_COUNT_IDX         (TLM_TYPE_IDX + 1)
+#define TLM_CMD_COUNT_IDX         (TLM_TLM_COUNT_IDX + 1)
+#define TLM_SENT_TIME0_IDX        (TLM_CMD_COUNT_IDX + 1)
+#define TLM_SENT_TIME1_IDX        (TLM_SENT_TIME0_IDX + 1)
+#define TLM_SENT_TIME2_IDX        (TLM_SENT_TIME1_IDX + 1)
+#define TLM_SENT_TIME3_IDX        (TLM_SENT_TIME2_IDX + 1)
+#define TLM_DATA_LEN_IDX          (TLM_SENT_TIME3_IDX + 1)
+#define TLM_DATA_IDX              (TLM_DATA_LEN_IDX + 1)
+
+// Note that there shall be a tail to the telemetry.
+// This includes a check sum and an ender byte
 
 enum TelemetryType{
   TLM_TYPE_HK,
@@ -203,8 +206,7 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   byte tlm[MAX_TLM_ARRAY_SIZE];
 
   // Set Header Variables
-  tlm[TLM_STX0_IDX] = TLM_START_BYTE_VAL;
-  tlm[TLM_STX1_IDX] = TLM_START_BYTE_VAL;
+  tlm[TLM_START_BYTE_IDX] = TLM_START_BYTE_VAL;
   tlm[TLM_MACHINE_ID_IDX] = (state->comms).machine_id;
   tlm[TLM_TYPE_IDX] = (byte)tlm_type;
   tlm[TLM_TLM_COUNT_IDX] = (state->comms).tlm_cnt;
@@ -222,11 +224,15 @@ CommsStatus SendTlm(State *state, TelemetryType tlm_type, byte *data, unsigned i
   }
 
   // Set Tail Variables
-  tlm[TLM_DATA_IDX + data_len] = TLM_END_BYTE_VAL;
+  byte check_sum = 0;
+  for(int i = TLM_START_BYTE_IDX + 1; i < TLM_HEADER_SIZE + data_len; i++){
+    check_sum += tlm[i];
+  }
+  tlm[TLM_DATA_IDX + data_len] = check_sum % 256;
   tlm[TLM_DATA_IDX + data_len + 1] = TLM_END_BYTE_VAL;
 
   // Send packet and check status
-  size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TAIL_SIZE;
+  size_t tlm_packet_size = TLM_HEADER_SIZE + data_len + TLM_TRAILER_SIZE;
   if(Serial.write(tlm, tlm_packet_size) == tlm_packet_size){
     return COMMS_OK;
   }else{
@@ -344,8 +350,8 @@ void RcvCmds(State *state){
 void Perform1hzFunctions(State *state){
   unsigned long ms_since_boot = millis();
   if(millis() - state->last_1hz_func_exec_time >= 1000){
-    //SendTlmHk(state);
-    SendTlmCmdAck(state, CMD_NOP);
+    SendTlmHk(state);
+    //SendTlmCmdAck(state, CMD_NOP);
 
     state->last_1hz_func_exec_time = ms_since_boot;
   }

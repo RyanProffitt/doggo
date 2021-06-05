@@ -142,3 +142,6 @@ software/.vscode/
 
 # Telemetry Files
 software/tlm_files/
+
+# VS Code
+.vscode/

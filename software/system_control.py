@@ -13,6 +13,10 @@ import tctm
 from tctm import MotorAction as MotorAction
 from tctm import gen_cmd_motor_ctrl
 
+#----------------Hardware Definitions : Communications-------------------#
+MACHINE_ID = 0x44
+TIMEOUT_FIFTY_MS = 0.050
+
 def main():
     robo = machine_state.MachineState(0x44)
 
